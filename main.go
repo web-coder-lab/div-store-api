@@ -177,7 +177,13 @@ func main() {
 	addr := ":" + port
 	log.Printf("Div Store API (Go) → http://0.0.0.0%s", addr)
 	log.Printf("Admin panel → /admin")
-	if err := http.ListenAndServe(addr, middleware.CORS(mux)); err != nil {
+	handler := middleware.Chain(mux,
+		middleware.CORS,
+		middleware.SecurityHeaders,
+		middleware.RateLimit,
+		middleware.MaxBody(32<<20), // 32MB; upload-apk uses its own multipart limit
+	)
+	if err := http.ListenAndServe(addr, handler); err != nil {
 		fmt.Fprintf(os.Stderr, "server error: %v\n", err)
 		os.Exit(1)
 	}

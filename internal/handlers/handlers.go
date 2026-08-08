@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/husdainshah2-web/div-store/internal/config"
 	"github.com/husdainshah2-web/div-store/internal/ghdb"
 	"github.com/husdainshah2-web/div-store/internal/storage"
 )
@@ -41,8 +42,10 @@ func Health(w http.ResponseWriter, r *http.Request) {
 				return g.Status()
 			}(),
 		},
+		"repos": config.Layout(),
 		"apkStorage": map[string]any{
 			"enabled": st.Token != "", "owner": st.Owner, "prefix": st.Prefix, "maxGB": 3,
+			"purpose": "apk_only",
 		},
 		"time": time.Now().UTC().Format(time.RFC3339),
 	})

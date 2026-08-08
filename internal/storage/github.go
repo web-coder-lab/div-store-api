@@ -6,7 +6,8 @@ import (
 	"fmt"
 	"io"
 	"net/http"
-	"os"
+
+	"github.com/husdainshah2-web/div-store/internal/config"
 	"strconv"
 	"strings"
 	"time"
@@ -36,19 +37,10 @@ type Client struct {
 }
 
 func NewFromEnv() *Client {
-	owner := os.Getenv(OwnerEnv)
-	if owner == "" {
-		owner = "web-coder-lab"
-	}
-	token := os.Getenv(TokenEnv)
-	prefix := os.Getenv(PrefixEnv)
-	if prefix == "" {
-		prefix = "div-store-apks"
-	}
 	return &Client{
-		Owner:    owner,
-		Token:    token,
-		Prefix:   prefix,
+		Owner:    config.Owner(),
+		Token:    config.Token(),
+		Prefix:   config.APKPrefix(), // ONLY div-store-apks-* repos
 		MaxBytes: DefaultMaxBytes,
 		HTTP:     &http.Client{Timeout: 120 * time.Second},
 	}
@@ -144,6 +136,9 @@ func (c *Client) RepoReleaseBytes(repo string) (int64, error) {
 
 func (c *Client) CreateNextRepo(index int) (PoolRepo, error) {
 	name := fmt.Sprintf("%s-%02d", c.Prefix, index)
+	if name == config.DataRepo() || c.Prefix == config.DataRepo() {
+		return PoolRepo{}, fmt.Errorf("refusing to use data repo for APK storage")
+	}
 	payload := map[string]any{
 		"name":        name,
 		"private":     true,
@@ -272,6 +267,9 @@ func (c *Client) Status() map[string]any {
 		"prefix":   c.Prefix,
 		"maxBytes": c.MaxBytes,
 		"maxGB":    float64(c.MaxBytes) / (1024 * 1024 * 1024),
+		"purpose":  "apk_binaries_only",
+		"repos":    []string{c.Prefix + "-01", c.Prefix + "-02"},
+		"note":     "catalog JSON must never be written to APK repos",
 	}
 	if !c.enabled() {
 		out["error"] = "GITHUB_STORAGE_TOKEN not set"

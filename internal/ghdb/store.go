@@ -8,7 +8,8 @@ import (
 	"fmt"
 	"io"
 	"net/http"
-	"os"
+
+	"github.com/husdainshah2-web/div-store/internal/config"
 	"sync"
 	"time"
 )
@@ -24,17 +25,12 @@ type Store struct {
 }
 
 func NewFromEnv() *Store {
-	owner := os.Getenv("GITHUB_STORAGE_OWNER")
-	if owner == "" {
-		owner = "web-coder-lab"
-	}
-	repo := os.Getenv("GITHUB_DATA_REPO")
-	if repo == "" {
-		repo = "div-store-data"
-	}
 	return &Store{
-		Owner: owner, Repo: repo, Token: os.Getenv("GITHUB_STORAGE_TOKEN"),
-		Branch: "main", HTTP: &http.Client{Timeout: 60 * time.Second},
+		Owner:  config.Owner(),
+		Repo:   config.DataRepo(), // ONLY div-store-data — never APK repos
+		Token:  config.Token(),
+		Branch: "main",
+		HTTP:   &http.Client{Timeout: 60 * time.Second},
 	}
 }
 
@@ -46,6 +42,8 @@ func (s *Store) Status() map[string]any {
 	return map[string]any{
 		"enabled": s.Enabled(), "owner": s.Owner, "repo": s.Repo,
 		"branch": s.Branch, "mode": "github-json-db", "path": "db/",
+		"purpose": "catalog_and_user_data_only",
+		"note":    "APK binaries must never be written to this repo",
 	}
 }
 

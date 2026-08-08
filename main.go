@@ -6,7 +6,6 @@ import (
 	"net/http"
 	"os"
 	"strings"
-	"time"
 
 	"github.com/husdainshah2-web/div-store/internal/firebase"
 	"github.com/husdainshah2-web/div-store/internal/handlers"
@@ -19,8 +18,10 @@ func main() {
 		log.Printf("[firebase] init warning: %v", err)
 	} else {
 		log.Printf("[firebase] OK project=%s", firebase.ProjectID())
-	sync := storage.NewDataSyncFromEnv()
-	sync.StartBackground(firebase.Client(), 3*time.Minute)
+	dataSync := storage.NewDataSyncFromEnv()
+	storage.SetGlobalSync(dataSync)
+	storage.SetGlobalAPK(storage.NewFromEnv())
+	log.Printf("[datasync] mode=size>=1MB push to %s/%s (no timer)", dataSync.Owner, dataSync.Repo)
 	}
 
 	mux := http.NewServeMux()
@@ -128,6 +129,13 @@ func main() {
 	})
 	mux.HandleFunc("/api/admin/submissions", middleware.RequireAdmin(handlers.ListSubmissions))
 	mux.HandleFunc("/api/admin/storage", middleware.RequireAdmin(handlers.StorageStatus))
+	mux.HandleFunc("/api/admin/sync-data", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			http.Error(w, "method not allowed", 405)
+			return
+		}
+		middleware.RequireAdmin(handlers.SyncDataNow)(w, r)
+	})
 	mux.HandleFunc("/api/admin/upload-apk", func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPost {
 			http.Error(w, "method not allowed", 405)

@@ -243,6 +243,7 @@ func CreateCategory(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	row["appCount"] = 0
+	triggerDataSync()
 	writeJSON(w, 201, row)
 }
 
@@ -258,6 +259,7 @@ func DeleteCategory(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, 500, err.Error())
 		return
 	}
+	triggerDataSync()
 	w.WriteHeader(204)
 }
 
@@ -352,7 +354,14 @@ func DownloadApp(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	_, _ = ref.Update(ctx, []firestore.Update{{Path: "downloads", Value: firestore.Increment(1)}})
-	writeJSON(w, 200, map[string]any{"ok": true, "downloadUrl": doc.Data()["downloadUrl"]})
+	dl := asString(doc.Data()["downloadUrl"])
+	// Client downloads APK from GitHub Releases URL stored on the app
+	writeJSON(w, 200, map[string]any{
+		"ok": true,
+		"downloadUrl": dl,
+		"source": "github-release",
+		"message": "Download APK from GitHub Releases via this URL",
+	})
 }
 
 func AdminStats(w http.ResponseWriter, r *http.Request) {
@@ -454,6 +463,7 @@ func AdminCreateApp(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	catNames, _ := loadCatNames(ctx)
+	triggerDataSync()
 	writeJSON(w, 201, mapApp(row, catNames))
 }
 
@@ -476,6 +486,7 @@ func AdminUpdateApp(w http.ResponseWriter, r *http.Request) {
 	}
 	doc, _ = ref.Get(ctx)
 	catNames, _ := loadCatNames(ctx)
+	triggerDataSync()
 	writeJSON(w, 200, mapApp(doc.Data(), catNames))
 }
 
@@ -487,6 +498,7 @@ func AdminDeleteApp(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, 500, err.Error())
 		return
 	}
+	triggerDataSync()
 	w.WriteHeader(204)
 }
 
@@ -578,6 +590,7 @@ func SubmitApp(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, 500, err.Error())
 		return
 	}
+	triggerDataSync()
 	writeJSON(w, 201, row)
 }
 
@@ -629,6 +642,7 @@ func ApproveSubmission(w http.ResponseWriter, r *http.Request) {
 		"status": "approved", "reviewedAt": time.Now().UTC().Format(time.RFC3339),
 	}, firestore.MergeAll)
 	catNames, _ := loadCatNames(ctx)
+	triggerDataSync()
 	writeJSON(w, 200, map[string]any{"submission": "approved", "app": mapApp(app, catNames)})
 }
 
@@ -655,7 +669,29 @@ func RejectSubmission(w http.ResponseWriter, r *http.Request) {
 
 func StorageStatus(w http.ResponseWriter, r *http.Request) {
 	c := storage.NewFromEnv()
-	writeJSON(w, 200, c.Status())
+	st := map[string]any{
+		"apk":  c.Status(),
+		"data": map[string]any{},
+	}
+	if ds := storage.GlobalSync(); ds != nil {
+		st["data"] = ds.Status()
+	}
+	writeJSON(w, 200, st)
+}
+
+// SyncDataNow force-pushes Firestore snapshot to GitHub (admin).
+func SyncDataNow(w http.ResponseWriter, r *http.Request) {
+	ds := storage.GlobalSync()
+	if ds == nil || !ds.Enabled() {
+		writeErr(w, 503, "data sync not configured")
+		return
+	}
+	res, err := ds.MaybePush(r.Context(), firebase.Client(), true)
+	if err != nil {
+		writeErr(w, 500, err.Error())
+		return
+	}
+	writeJSON(w, 200, res)
 }
 
 func UploadAPK(w http.ResponseWriter, r *http.Request) {
@@ -705,6 +741,12 @@ func UploadAPK(w http.ResponseWriter, r *http.Request) {
 		"ok": true, "repo": repo.FullName, "tag": tag, "asset": assetName,
 		"size": size, "downloadUrl": url,
 	})
+}
+
+func triggerDataSync() {
+	if ds := storage.GlobalSync(); ds != nil {
+		ds.AfterWrite(firebase.Client())
+	}
 }
 
 func asInt(v any) int64 {

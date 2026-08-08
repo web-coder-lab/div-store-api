@@ -10,18 +10,26 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"sync"
 	"time"
 
 	"cloud.google.com/go/firestore"
 )
 
-// DataSync exports Firestore snapshots to GitHub every few minutes.
+// Push when exported JSON payload exceeds this size (default 1 MB).
+const DefaultPushThreshold = int64(1 * 1024 * 1024)
+
 type DataSync struct {
-	Owner  string
-	Repo   string
-	Token  string
-	Branch string
-	HTTP   *http.Client
+	Owner     string
+	Repo      string
+	Token     string
+	Branch    string
+	Threshold int64
+	HTTP      *http.Client
+
+	mu       sync.Mutex
+	lastPush time.Time
+	lastSize int64
 }
 
 func NewDataSyncFromEnv() *DataSync {
@@ -35,16 +43,31 @@ func NewDataSyncFromEnv() *DataSync {
 		repo = "div-store-data"
 	}
 	return &DataSync{
-		Owner:  owner,
-		Repo:   repo,
-		Token:  token,
-		Branch: "main",
-		HTTP:   &http.Client{Timeout: 90 * time.Second},
+		Owner:     owner,
+		Repo:      repo,
+		Token:     token,
+		Branch:    "main",
+		Threshold: DefaultPushThreshold,
+		HTTP:      &http.Client{Timeout: 90 * time.Second},
 	}
 }
 
 func (d *DataSync) Enabled() bool {
 	return d.Token != "" && d.Owner != "" && d.Repo != ""
+}
+
+func (d *DataSync) Status() map[string]any {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	return map[string]any{
+		"enabled":   d.Enabled(),
+		"owner":     d.Owner,
+		"repo":      d.Repo,
+		"threshold": d.Threshold,
+		"lastSize":  d.lastSize,
+		"lastPush":  d.lastPush.Format(time.RFC3339),
+		"mode":      "size>=1MB then push (no timer)",
+	}
 }
 
 func (d *DataSync) api(method, path string, body io.Reader) (*http.Response, error) {
@@ -109,11 +132,7 @@ func dumpCollection(ctx context.Context, db *firestore.Client, name string) ([]m
 	return out, nil
 }
 
-// RunOnce exports key collections to GitHub as JSON.
-func (d *DataSync) RunOnce(ctx context.Context, db *firestore.Client) error {
-	if !d.Enabled() || db == nil {
-		return fmt.Errorf("sync disabled or no db")
-	}
+func (d *DataSync) buildSnapshot(ctx context.Context, db *firestore.Client) ([]byte, map[string]any, error) {
 	collections := []string{
 		"apps", "categories", "reviews", "submissions",
 		"developer_profiles", "settings", "users",
@@ -125,47 +144,78 @@ func (d *DataSync) RunOnce(ctx context.Context, db *firestore.Client) error {
 	for _, col := range collections {
 		rows, err := dumpCollection(ctx, db, col)
 		if err != nil {
-			// empty / missing collection — still record empty
 			snapshot[col] = []any{}
 			continue
 		}
 		snapshot[col] = rows
-		// also write per-collection file
-		b, _ := json.MarshalIndent(rows, "", "  ")
-		path := fmt.Sprintf("data/%s.json", col)
-		msg := fmt.Sprintf("sync %s @ %s", col, time.Now().UTC().Format(time.RFC3339))
-		if err := d.putFile(path, b, msg); err != nil {
-			log.Printf("[datasync] %v", err)
-		}
 	}
-	full, _ := json.MarshalIndent(snapshot, "", "  ")
-	return d.putFile("data/snapshot.json", full, "full snapshot @ "+time.Now().UTC().Format(time.RFC3339))
+	b, err := json.MarshalIndent(snapshot, "", "  ")
+	return b, snapshot, err
 }
 
-// StartBackground runs sync every interval (e.g. 3 minutes).
-func (d *DataSync) StartBackground(db *firestore.Client, interval time.Duration) {
+// MaybePush exports data; only writes to GitHub if payload size >= 1MB
+// OR force=true (manual admin trigger).
+func (d *DataSync) MaybePush(ctx context.Context, db *firestore.Client, force bool) (map[string]any, error) {
 	if !d.Enabled() {
-		log.Printf("[datasync] disabled (set GITHUB_STORAGE_TOKEN)")
+		return nil, fmt.Errorf("github data sync not configured")
+	}
+	if db == nil {
+		return nil, fmt.Errorf("firestore not ready")
+	}
+	raw, snapshot, err := d.buildSnapshot(ctx, db)
+	if err != nil {
+		return nil, err
+	}
+	size := int64(len(raw))
+	d.mu.Lock()
+	d.lastSize = size
+	d.mu.Unlock()
+
+	result := map[string]any{
+		"size":      size,
+		"threshold": d.Threshold,
+		"pushed":    false,
+		"reason":    "below_1MB",
+	}
+	if !force && size < d.Threshold {
+		log.Printf("[datasync] size=%d < threshold=%d — skip push", size, d.Threshold)
+		return result, nil
+	}
+
+	// write snapshot + per-collection files
+	msg := fmt.Sprintf("data sync size=%d @ %s", size, time.Now().UTC().Format(time.RFC3339))
+	if err := d.putFile("data/snapshot.json", raw, msg); err != nil {
+		return result, err
+	}
+	for _, col := range []string{"apps", "categories", "reviews", "submissions", "developer_profiles", "settings", "users"} {
+		part, _ := json.MarshalIndent(snapshot[col], "", "  ")
+		_ = d.putFile("data/"+col+".json", part, msg+" · "+col)
+	}
+	d.mu.Lock()
+	d.lastPush = time.Now().UTC()
+	d.mu.Unlock()
+	result["pushed"] = true
+	if force {
+		result["reason"] = "forced"
+	} else {
+		result["reason"] = "size>=1MB"
+	}
+	result["repo"] = d.Owner + "/" + d.Repo
+	log.Printf("[datasync] PUSHED size=%d → %s/%s", size, d.Owner, d.Repo)
+	return result, nil
+}
+
+// AfterWrite should be called after any mutation that grows user data.
+// Runs size check in background; pushes only if >= 1MB.
+func (d *DataSync) AfterWrite(db *firestore.Client) {
+	if !d.Enabled() || db == nil {
 		return
 	}
-	log.Printf("[datasync] every %s → %s/%s", interval, d.Owner, d.Repo)
 	go func() {
-		t := time.NewTicker(interval)
-		defer t.Stop()
-		// first run after short delay
-		time.Sleep(15 * time.Second)
-		ctx := context.Background()
-		if err := d.RunOnce(ctx, db); err != nil {
-			log.Printf("[datasync] first: %v", err)
-		} else {
-			log.Printf("[datasync] first OK")
-		}
-		for range t.C {
-			if err := d.RunOnce(context.Background(), db); err != nil {
-				log.Printf("[datasync] %v", err)
-			} else {
-				log.Printf("[datasync] OK")
-			}
+		ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
+		defer cancel()
+		if _, err := d.MaybePush(ctx, db, false); err != nil {
+			log.Printf("[datasync] after-write: %v", err)
 		}
 	}()
 }

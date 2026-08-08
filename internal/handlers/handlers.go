@@ -737,9 +737,27 @@ func UploadAPK(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, 500, "upload: "+err.Error())
 		return
 	}
+	// Optional: link this release URL to an app record
+	appID := asInt(r.FormValue("appId"))
+	if appID > 0 && firebase.Client() != nil {
+		_, _ = firebase.Client().Collection("apps").Doc(strconv.FormatInt(appID, 10)).Set(
+			r.Context(),
+			map[string]any{
+				"downloadUrl": url,
+				"apkRepo":     repo.FullName,
+				"apkTag":      tag,
+				"apkAsset":    assetName,
+				"apkSize":     size,
+				"updatedAt":   time.Now().UTC().Format(time.RFC3339),
+			},
+			firestore.MergeAll,
+		)
+		triggerDataSync()
+	}
 	writeJSON(w, 201, map[string]any{
 		"ok": true, "repo": repo.FullName, "tag": tag, "asset": assetName,
-		"size": size, "downloadUrl": url,
+		"size": size, "downloadUrl": url, "appId": appID,
+		"message": "APK on GitHub Releases — users download from this URL",
 	})
 }
 

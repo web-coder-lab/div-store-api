@@ -3,13 +3,16 @@ package handlers
 import (
 	"context"
 	"encoding/json"
+	"io"
 	"net/http"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
 
 	"cloud.google.com/go/firestore"
 	"github.com/husdainshah2-web/div-store/internal/firebase"
+	"github.com/husdainshah2-web/div-store/internal/storage"
 	"google.golang.org/api/iterator"
 )
 
@@ -35,13 +38,20 @@ func toISO(v any) string {
 }
 
 func Health(w http.ResponseWriter, r *http.Request) {
+	st := storage.NewFromEnv()
 	writeJSON(w, 200, map[string]any{
 		"status":   "ok",
 		"name":     "Div Store API",
-		"version":  "1.0.0-go",
+		"version":  "1.0.1-go",
 		"engine":   "go",
 		"firebase": firebase.Status(),
-		"time":     time.Now().UTC().Format(time.RFC3339),
+		"storage": map[string]any{
+			"enabled": st.Token != "",
+			"owner":   st.Owner,
+			"prefix":  st.Prefix,
+			"maxGB":   3,
+		},
+		"time": time.Now().UTC().Format(time.RFC3339),
 	})
 }
 
@@ -680,4 +690,65 @@ func loadCatNames(ctx context.Context) map[int64]string {
 		m[asInt(d["id"])] = asString(d["name"])
 	}
 	return m
+}
+
+// --- GitHub APK storage ---
+
+func StorageStatus(w http.ResponseWriter, r *http.Request) {
+	c := storage.NewFromEnv()
+	writeJSON(w, 200, c.Status())
+}
+
+// UploadAPK: multipart form field "file" (apk), optional "name", "tag"
+func UploadAPK(w http.ResponseWriter, r *http.Request) {
+	c := storage.NewFromEnv()
+	if c.Token == "" {
+		writeErr(w, 503, "GitHub storage not configured (GITHUB_STORAGE_TOKEN)")
+		return
+	}
+	if err := r.ParseMultipartForm(512 << 20); err != nil { // 512MB
+		writeErr(w, 400, "Invalid multipart form (max 512MB)")
+		return
+	}
+	file, hdr, err := r.FormFile("file")
+	if err != nil {
+		writeErr(w, 400, "file field required")
+		return
+	}
+	defer file.Close()
+	data, err := io.ReadAll(file)
+	if err != nil {
+		writeErr(w, 500, "read failed")
+		return
+	}
+	assetName := r.FormValue("name")
+	if assetName == "" {
+		assetName = hdr.Filename
+	}
+	if assetName == "" {
+		assetName = "app.apk"
+	}
+	assetName = filepath.Base(assetName)
+	tag := r.FormValue("tag")
+	if tag == "" {
+		tag = "apk-" + time.Now().UTC().Format("20060102-150405")
+	}
+	repo, err := c.PickRepo(int64(len(data)))
+	if err != nil {
+		writeErr(w, 500, "pick repo: "+err.Error())
+		return
+	}
+	url, size, err := c.UploadAPK(repo.Name, tag, assetName, data)
+	if err != nil {
+		writeErr(w, 500, "upload: "+err.Error())
+		return
+	}
+	writeJSON(w, 201, map[string]any{
+		"ok":         true,
+		"repo":       repo.FullName,
+		"tag":        tag,
+		"asset":      assetName,
+		"size":       size,
+		"downloadUrl": url,
+	})
 }

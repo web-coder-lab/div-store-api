@@ -98,6 +98,14 @@ func main() {
 		}
 	})
 	mux.HandleFunc("/api/admin/submissions", middleware.RequireAdmin(handlers.ListSubmissions))
+	mux.HandleFunc("/api/admin/storage", middleware.RequireAdmin(handlers.StorageStatus))
+	mux.HandleFunc("/api/admin/upload-apk", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			http.Error(w, "method not allowed", 405)
+			return
+		}
+		middleware.RequireAdmin(handlers.UploadAPK)(w, r)
+	})
 	mux.HandleFunc("/api/admin/submissions/", func(w http.ResponseWriter, r *http.Request) {
 		if strings.HasSuffix(r.URL.Path, "/approve") && r.Method == http.MethodPost {
 			middleware.RequireAdmin(handlers.ApproveSubmission)(w, r)

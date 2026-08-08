@@ -271,13 +271,20 @@ async function render() {
         render();
       };
     } else if (tab === 'more') {
-      el.innerHTML = `<div class="card"><h3>Session</h3>
+      const st = await api('/api/admin/storage');
+      const repos = (st.repos||[]).map(r => `<div class="item"><div class="meta">
+            <div class="title">${esc(r.fullName||r.name)}</div>
+            <div class="sub">${((r.bytesUsed||0)/1e9).toFixed(2)} GB used · idx ${r.index}</div>
+          </div></div>`).join('') || '<div class="muted">No storage repos yet</div>';
+      el.innerHTML = `<div class="card"><h3>APK Storage (GitHub)</h3>
+        <p class="muted">Owner: ${esc(st.owner||'—')} · Max ${st.maxGB||3} GB / repo</p>
+        ${repos}
+        <p class="muted" style="margin-top:8px">Upload: POST /api/admin/upload-apk (multipart file)</p>
+      </div>
+      <div class="card"><h3>Session</h3>
         <p class="muted">Base: ${esc(BASE||'(same origin)')}</p>
         <button class="ghost" style="width:100%;margin-top:10px" onclick="location.reload()">Refresh</button>
         <button class="danger" style="width:100%;margin-top:8px" id="out2">Logout</button>
-      </div>
-      <div class="card"><h3>Div Store</h3>
-        <p class="muted">Go API + Firebase · Admin mobile shell</p>
       </div>`;
       $('out2').onclick = () => $('logoutBtn').click();
     }

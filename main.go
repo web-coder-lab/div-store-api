@@ -7,26 +7,24 @@ import (
 	"os"
 	"strings"
 
-	"github.com/husdainshah2-web/div-store/internal/firebase"
+	"github.com/husdainshah2-web/div-store/internal/ghdb"
 	"github.com/husdainshah2-web/div-store/internal/handlers"
 	"github.com/husdainshah2-web/div-store/internal/middleware"
 	"github.com/husdainshah2-web/div-store/internal/storage"
 )
 
 func main() {
-	if err := firebase.Init(); err != nil {
-		log.Printf("[firebase] init warning: %v", err)
+	store := ghdb.NewFromEnv()
+	ghdb.SetGlobal(store)
+	if !store.Enabled() {
+		log.Printf("[ghdb] WARNING: GITHUB_STORAGE_TOKEN missing — database unavailable")
 	} else {
-		log.Printf("[firebase] OK project=%s", firebase.ProjectID())
-	dataSync := storage.NewDataSyncFromEnv()
-	storage.SetGlobalSync(dataSync)
-	storage.SetGlobalAPK(storage.NewFromEnv())
-	log.Printf("[datasync] mode=size>=1MB push to %s/%s (no timer)", dataSync.Owner, dataSync.Repo)
+		log.Printf("[ghdb] GitHub DB → %s/%s (db/*.json)", store.Owner, store.Repo)
 	}
+	storage.SetGlobalAPK(storage.NewFromEnv())
 
 	mux := http.NewServeMux()
 
-	// API
 	mux.HandleFunc("/api/health", handlers.Health)
 	mux.HandleFunc("/api/apps", func(w http.ResponseWriter, r *http.Request) {
 		if r.Method == http.MethodGet {
@@ -155,7 +153,12 @@ func main() {
 		http.Error(w, "method not allowed", 405)
 	})
 
-	// Admin panel (mobile UI)
+	mux.HandleFunc("/terms", func(w http.ResponseWriter, r *http.Request) {
+		http.ServeFile(w, r, "admin/terms.html")
+	})
+	mux.HandleFunc("/privacy", func(w http.ResponseWriter, r *http.Request) {
+		http.ServeFile(w, r, "admin/privacy.html")
+	})
 	mux.HandleFunc("/admin", func(w http.ResponseWriter, r *http.Request) {
 		http.ServeFile(w, r, "admin/index.html")
 	})
@@ -176,12 +179,13 @@ func main() {
 	}
 	addr := ":" + port
 	log.Printf("Div Store API (Go) → http://0.0.0.0%s", addr)
-	log.Printf("Admin panel → /admin")
+	log.Printf("Admin → /admin · Terms → /terms · Privacy → /privacy")
+
 	handler := middleware.Chain(mux,
 		middleware.CORS,
 		middleware.SecurityHeaders,
 		middleware.RateLimit,
-		middleware.MaxBody(32<<20), // 32MB; upload-apk uses its own multipart limit
+		middleware.MaxBody(32<<20),
 	)
 	if err := http.ListenAndServe(addr, handler); err != nil {
 		fmt.Fprintf(os.Stderr, "server error: %v\n", err)

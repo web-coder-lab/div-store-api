@@ -1,7 +1,6 @@
 package handlers
 
 import (
-	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -11,8 +10,7 @@ import (
 	"strings"
 	"time"
 
-	"cloud.google.com/go/firestore"
-	"github.com/husdainshah2-web/div-store/internal/firebase"
+	"github.com/husdainshah2-web/div-store/internal/ghdb"
 	"github.com/husdainshah2-web/div-store/internal/storage"
 )
 
@@ -21,55 +19,77 @@ func writeJSON(w http.ResponseWriter, code int, v any) {
 	w.WriteHeader(code)
 	_ = json.NewEncoder(w).Encode(v)
 }
-
 func writeErr(w http.ResponseWriter, code int, msg string) {
 	writeJSON(w, code, map[string]string{"error": msg})
 }
-
-func toISO(v any) string {
-	switch t := v.(type) {
-	case time.Time:
-		return t.UTC().Format(time.RFC3339)
-	case string:
-		if t != "" {
-			return t
-		}
-	}
-	return time.Now().UTC().Format(time.RFC3339)
-}
+func db() *ghdb.Store { return ghdb.Global() }
 
 func Health(w http.ResponseWriter, r *http.Request) {
 	st := storage.NewFromEnv()
+	g := db()
 	writeJSON(w, 200, map[string]any{
-		"status":   "ok",
-		"name":     "Div Store API",
-		"version":  "1.0.2-go",
-		"engine":   "go",
-		"firebase": firebase.Status(),
-		"storage": map[string]any{
-			"enabled": st.Token != "",
-			"owner":   st.Owner,
-			"prefix":  st.Prefix,
-			"maxGB":   3,
-			"dataRepo": "div-store-data",
-			"apkRepos": []string{"div-store-apks-01", "div-store-apks-02"},
-			"syncEvery": "3m",
+		"status":  "ok",
+		"name":    "Div Store API",
+		"version": "2.0.0-go-ghdb",
+		"engine":  "go",
+		"database": map[string]any{
+			"engine": "github",
+			"status": func() map[string]any {
+				if g == nil {
+					return map[string]any{"ok": false, "error": "not init"}
+				}
+				return g.Status()
+			}(),
+		},
+		"apkStorage": map[string]any{
+			"enabled": st.Token != "", "owner": st.Owner, "prefix": st.Prefix, "maxGB": 3,
 		},
 		"time": time.Now().UTC().Format(time.RFC3339),
 	})
 }
 
+
+
+type nilCtx struct{}
+
+func (nilCtx) Deadline() (time.Time, bool) { return time.Time{}, false }
+func (nilCtx) Done() <-chan struct{}       { return nil }
+func (nilCtx) Err() error                  { return nil }
+func (nilCtx) Value(any) any               { return nil }
+
+func mapApp(d map[string]any, names map[int64]string) map[string]any {
+	id := ghdb.ToInt(d["id"])
+	cid := ghdb.ToInt(d["categoryId"])
+	return map[string]any{
+		"id": id, "name": d["name"], "packageName": d["packageName"],
+		"description": d["description"], "categoryId": cid, "categoryName": names[cid],
+		"version": d["version"], "size": d["size"], "iconUrl": d["iconUrl"],
+		"screenshotUrls": d["screenshotUrls"], "downloadUrl": d["downloadUrl"],
+		"developerSlug": d["developerSlug"], "developerLogoUrl": d["developerLogoUrl"],
+		"developerDescription": d["developerDescription"], "scanStatus": d["scanStatus"],
+		"scanReport": d["scanReport"], "downloads": ghdb.ToInt(d["downloads"]),
+		"rating": d["rating"], "reviewCount": ghdb.ToInt(d["reviewCount"]),
+		"isFeatured": asBool(d["isFeatured"]), "isActive": d["isActive"] != false,
+		"developer": d["developer"], "createdAt": d["createdAt"],
+	}
+}
+
 func ListApps(w http.ResponseWriter, r *http.Request) {
-	defer func() {
-		if rec := recover(); rec != nil {
-			writeErr(w, 500, fmt.Sprintf("panic: %v", rec))
-		}
-	}()
-	ctx := r.Context()
-	db := firebase.Client()
-	if db == nil {
-		writeErr(w, 503, "Firebase not ready")
+	g := db()
+	if g == nil || !g.Enabled() {
+		writeErr(w, 503, "GitHub database not configured (GITHUB_STORAGE_TOKEN)")
 		return
+	}
+	rows, err := g.ReadAll(r.Context(), "apps")
+	if err != nil {
+		writeErr(w, 500, err.Error())
+		return
+	}
+	names := map[int64]string{}
+	if cats, err := g.ReadAll(r.Context(), "categories"); err == nil {
+		for _, c := range cats {
+			names[ghdb.ToInt(c["id"])] = asString(c["name"])
+		}
 	}
 	q := r.URL.Query()
 	search := strings.ToLower(q.Get("search"))
@@ -83,136 +103,99 @@ func ListApps(w http.ResponseWriter, r *http.Request) {
 	if offset < 0 {
 		offset = 0
 	}
-
-	catNames, err := loadCatNames(ctx)
-	if err != nil {
-		writeErr(w, 500, "categories: "+err.Error())
-		return
-	}
-
 	var catID int64 = -1
 	if category != "" {
-		for id, n := range catNames {
+		for id, n := range names {
 			if n == category {
 				catID = id
 				break
 			}
 		}
 	}
-
-	docs, err := db.Collection("apps").Documents(ctx).GetAll()
-	if err != nil {
-		writeErr(w, 500, "apps: "+err.Error())
-		return
-	}
-
-	rows := make([]map[string]any, 0)
-	for _, doc := range docs {
-		d := doc.Data()
-		app := mapApp(d, catNames)
-		if v, ok := d["isActive"]; ok && v == false {
+	out := make([]map[string]any, 0)
+	for _, d := range rows {
+		if d["isActive"] == false {
 			continue
 		}
-		if catID >= 0 && asInt(d["categoryId"]) != catID {
+		if catID >= 0 && ghdb.ToInt(d["categoryId"]) != catID {
 			continue
 		}
 		if featured == "true" && !asBool(d["isFeatured"]) {
 			continue
 		}
-		if featured == "false" && asBool(d["isFeatured"]) {
-			continue
-		}
 		if search != "" {
-			name := strings.ToLower(asString(d["name"]))
-			pkg := strings.ToLower(asString(d["packageName"]))
-			if !strings.Contains(name, search) && !strings.Contains(pkg, search) {
+			n := strings.ToLower(asString(d["name"]))
+			p := strings.ToLower(asString(d["packageName"]))
+			if !strings.Contains(n, search) && !strings.Contains(p, search) {
 				continue
 			}
 		}
-		rows = append(rows, app)
+		out = append(out, mapApp(d, names))
 	}
-	for i := 0; i < len(rows); i++ {
-		for j := i + 1; j < len(rows); j++ {
-			if asInt(rows[j]["downloads"]) > asInt(rows[i]["downloads"]) {
-				rows[i], rows[j] = rows[j], rows[i]
+	for i := 0; i < len(out); i++ {
+		for j := i + 1; j < len(out); j++ {
+			if ghdb.ToInt(out[j]["downloads"]) > ghdb.ToInt(out[i]["downloads"]) {
+				out[i], out[j] = out[j], out[i]
 			}
 		}
 	}
-	if offset > len(rows) {
-		offset = len(rows)
+	if offset > len(out) {
+		offset = len(out)
 	}
 	end := offset + limit
-	if end > len(rows) {
-		end = len(rows)
+	if end > len(out) {
+		end = len(out)
 	}
-	writeJSON(w, 200, rows[offset:end])
+	writeJSON(w, 200, out[offset:end])
 }
 
 func GetApp(w http.ResponseWriter, r *http.Request) {
 	idStr := strings.TrimPrefix(r.URL.Path, "/api/apps/")
-	idStr = strings.Split(idStr, "/")[0]
-	id, _ := strconv.ParseInt(idStr, 10, 64)
-	if id <= 0 {
-		writeErr(w, 400, "Invalid id.")
+	id, _ := strconv.ParseInt(strings.Split(idStr, "/")[0], 10, 64)
+	g := db()
+	if g == nil {
+		writeErr(w, 503, "GitHub database not configured")
 		return
 	}
-	ctx := r.Context()
-	db := firebase.Client()
-	if db == nil {
-		writeErr(w, 503, "Firebase not ready")
-		return
-	}
-	doc, err := db.Collection("apps").Doc(strconv.FormatInt(id, 10)).Get(ctx)
-	if err != nil || !doc.Exists() {
+	row, err := g.GetByID(r.Context(), "apps", id)
+	if err != nil {
 		writeErr(w, 404, "App not found.")
 		return
 	}
-	catNames, _ := loadCatNames(ctx)
-	writeJSON(w, 200, mapApp(doc.Data(), catNames))
+	names := map[int64]string{}
+	if cats, e := g.ReadAll(r.Context(), "categories"); e == nil {
+		for _, c := range cats {
+			names[ghdb.ToInt(c["id"])] = asString(c["name"])
+		}
+	}
+	writeJSON(w, 200, mapApp(row, names))
 }
 
 func ListCategories(w http.ResponseWriter, r *http.Request) {
-	defer func() {
-		if rec := recover(); rec != nil {
-			writeErr(w, 500, fmt.Sprintf("panic: %v", rec))
-		}
-	}()
-	ctx := r.Context()
-	db := firebase.Client()
-	if db == nil {
-		writeErr(w, 503, "Firebase not ready")
+	g := db()
+	if g == nil || !g.Enabled() {
+		writeErr(w, 503, "GitHub database not configured")
 		return
 	}
-	appDocs, err := db.Collection("apps").Documents(ctx).GetAll()
+	cats, err := g.ReadAll(r.Context(), "categories")
 	if err != nil {
-		writeErr(w, 500, "apps count: "+err.Error())
+		writeErr(w, 500, err.Error())
 		return
 	}
+	apps, _ := g.ReadAll(r.Context(), "apps")
 	counts := map[int64]int{}
-	for _, doc := range appDocs {
-		cid := asInt(doc.Data()["categoryId"])
-		counts[cid]++
+	for _, a := range apps {
+		counts[ghdb.ToInt(a["categoryId"])]++
 	}
-	catDocs, err := db.Collection("categories").Documents(ctx).GetAll()
-	if err != nil {
-		writeErr(w, 500, "categories: "+err.Error())
-		return
-	}
-	rows := make([]map[string]any, 0)
-	for _, doc := range catDocs {
-		d := doc.Data()
-		id := asInt(d["id"])
-		if id == 0 {
-			if n, err := strconv.ParseInt(doc.Ref.ID, 10, 64); err == nil {
-				id = n
-			}
-		}
-		rows = append(rows, map[string]any{
-			"id": id, "name": d["name"], "icon": strOr(d["icon"], "Package"),
-			"createdAt": toISO(d["createdAt"]), "appCount": counts[id],
+	out := make([]map[string]any, 0, len(cats))
+	for _, c := range cats {
+		id := ghdb.ToInt(c["id"])
+		out = append(out, map[string]any{
+			"id": id, "name": c["name"], "icon": c["icon"],
+			"createdAt": c["createdAt"], "appCount": counts[id],
 		})
 	}
-	writeJSON(w, 200, rows)
+	writeJSON(w, 200, out)
 }
 
 func CreateCategory(w http.ResponseWriter, r *http.Request) {
@@ -227,39 +210,30 @@ func CreateCategory(w http.ResponseWriter, r *http.Request) {
 	if body.Icon == "" {
 		body.Icon = "Package"
 	}
-	ctx := r.Context()
-	id, err := firebase.NextID(ctx, "categories")
+	g := db()
+	id, err := g.NextID(r.Context(), "categories")
 	if err != nil {
-		writeErr(w, 500, "counter: "+err.Error())
+		writeErr(w, 500, err.Error())
 		return
 	}
 	row := map[string]any{
 		"id": id, "name": body.Name, "icon": body.Icon,
 		"createdAt": time.Now().UTC().Format(time.RFC3339),
 	}
-	_, err = firebase.Client().Collection("categories").Doc(strconv.FormatInt(id, 10)).Set(ctx, row)
-	if err != nil {
-		writeErr(w, 500, "write: "+err.Error())
+	if err := g.UpsertByID(r.Context(), "categories", id, row); err != nil {
+		writeErr(w, 500, err.Error())
 		return
 	}
 	row["appCount"] = 0
-	triggerDataSync()
 	writeJSON(w, 201, row)
 }
 
 func DeleteCategory(w http.ResponseWriter, r *http.Request) {
-	idStr := strings.TrimPrefix(r.URL.Path, "/api/categories/")
-	id, _ := strconv.ParseInt(idStr, 10, 64)
-	if id <= 0 {
-		writeErr(w, 400, "Invalid id.")
-		return
-	}
-	_, err := firebase.Client().Collection("categories").Doc(strconv.FormatInt(id, 10)).Delete(r.Context())
-	if err != nil {
+	id, _ := strconv.ParseInt(strings.TrimPrefix(r.URL.Path, "/api/categories/"), 10, 64)
+	if err := db().DeleteByID(r.Context(), "categories", id); err != nil {
 		writeErr(w, 500, err.Error())
 		return
 	}
-	triggerDataSync()
 	w.WriteHeader(204)
 }
 
@@ -269,38 +243,23 @@ func ListReviews(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, 400, "Invalid path.")
 		return
 	}
-	id, _ := strconv.ParseInt(parts[2], 10, 64)
-	ctx := r.Context()
-	docs, err := firebase.Client().Collection("reviews").Where("appId", "==", id).Documents(ctx).GetAll()
+	appID, _ := strconv.ParseInt(parts[2], 10, 64)
+	rows, err := db().ReadAll(r.Context(), "reviews")
 	if err != nil {
-		// fallback: scan all
-		docs, err = firebase.Client().Collection("reviews").Documents(ctx).GetAll()
-		if err != nil {
-			writeErr(w, 500, err.Error())
-			return
+		writeErr(w, 500, err.Error())
+		return
+	}
+	out := make([]map[string]any, 0)
+	for _, d := range rows {
+		if ghdb.ToInt(d["appId"]) == appID {
+			out = append(out, d)
 		}
 	}
-	rows := make([]map[string]any, 0)
-	for _, doc := range docs {
-		d := doc.Data()
-		if asInt(d["appId"]) != id {
-			continue
-		}
-		rows = append(rows, map[string]any{
-			"id": asInt(d["id"]), "appId": asInt(d["appId"]),
-			"reviewerName": d["reviewerName"], "rating": asInt(d["rating"]),
-			"comment": d["comment"], "createdAt": toISO(d["createdAt"]),
-		})
-	}
-	writeJSON(w, 200, rows)
+	writeJSON(w, 200, out)
 }
 
 func CreateReview(w http.ResponseWriter, r *http.Request) {
 	parts := strings.Split(strings.Trim(r.URL.Path, "/"), "/")
-	if len(parts) < 4 {
-		writeErr(w, 400, "Invalid path.")
-		return
-	}
 	appID, _ := strconv.ParseInt(parts[2], 10, 64)
 	var body struct {
 		ReviewerName string `json:"reviewerName"`
@@ -320,8 +279,7 @@ func CreateReview(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, 400, "Rating 1-5 and comment required.")
 		return
 	}
-	ctx := r.Context()
-	id, err := firebase.NextID(ctx, "reviews")
+	id, err := db().NextID(r.Context(), "reviews")
 	if err != nil {
 		writeErr(w, 500, err.Error())
 		return
@@ -331,8 +289,7 @@ func CreateReview(w http.ResponseWriter, r *http.Request) {
 		"rating": body.Rating, "comment": body.Comment,
 		"createdAt": time.Now().UTC().Format(time.RFC3339),
 	}
-	_, err = firebase.Client().Collection("reviews").Doc(strconv.FormatInt(id, 10)).Set(ctx, row)
-	if err != nil {
+	if err := db().UpsertByID(r.Context(), "reviews", id, row); err != nil {
 		writeErr(w, 500, err.Error())
 		return
 	}
@@ -341,85 +298,63 @@ func CreateReview(w http.ResponseWriter, r *http.Request) {
 
 func DownloadApp(w http.ResponseWriter, r *http.Request) {
 	parts := strings.Split(strings.Trim(r.URL.Path, "/"), "/")
-	if len(parts) < 4 {
-		writeErr(w, 400, "Invalid path.")
-		return
-	}
 	id, _ := strconv.ParseInt(parts[2], 10, 64)
-	ctx := r.Context()
-	ref := firebase.Client().Collection("apps").Doc(strconv.FormatInt(id, 10))
-	doc, err := ref.Get(ctx)
-	if err != nil || !doc.Exists() {
+	row, err := db().GetByID(r.Context(), "apps", id)
+	if err != nil {
 		writeErr(w, 404, "App not found.")
 		return
 	}
-	_, _ = ref.Update(ctx, []firestore.Update{{Path: "downloads", Value: firestore.Increment(1)}})
-	dl := asString(doc.Data()["downloadUrl"])
-	// Client downloads APK from GitHub Releases URL stored on the app
+	row["downloads"] = ghdb.ToInt(row["downloads"]) + 1
+	_ = db().UpsertByID(r.Context(), "apps", id, row)
 	writeJSON(w, 200, map[string]any{
-		"ok": true,
-		"downloadUrl": dl,
-		"source": "github-release",
-		"message": "Download APK from GitHub Releases via this URL",
+		"ok": true, "downloadUrl": row["downloadUrl"], "source": "github-release",
 	})
 }
 
 func AdminStats(w http.ResponseWriter, r *http.Request) {
-	ctx := r.Context()
-	db := firebase.Client()
-	if db == nil {
-		writeErr(w, 503, "Firebase not ready")
-		return
-	}
-	apps, _ := db.Collection("apps").Documents(ctx).GetAll()
-	cats, _ := db.Collection("categories").Documents(ctx).GetAll()
-	revs, _ := db.Collection("reviews").Documents(ctx).GetAll()
-	subs, _ := db.Collection("submissions").Documents(ctx).GetAll()
-	var downloads int64
-	var featured int
-	for _, d := range apps {
-		data := d.Data()
-		downloads += asInt(data["downloads"])
-		if asBool(data["isFeatured"]) {
-			featured++
+	g := db()
+	apps, _ := g.ReadAll(r.Context(), "apps")
+	cats, _ := g.ReadAll(r.Context(), "categories")
+	revs, _ := g.ReadAll(r.Context(), "reviews")
+	subs, _ := g.ReadAll(r.Context(), "submissions")
+	var dl int64
+	var feat int
+	pending := 0
+	for _, a := range apps {
+		dl += ghdb.ToInt(a["downloads"])
+		if asBool(a["isFeatured"]) {
+			feat++
 		}
 	}
-	pending := 0
-	for _, d := range subs {
-		if asString(d.Data()["status"]) == "pending" {
+	for _, s := range subs {
+		if asString(s["status"]) == "pending" {
 			pending++
 		}
 	}
 	writeJSON(w, 200, map[string]any{
 		"apps": len(apps), "categories": len(cats), "reviews": len(revs),
 		"submissions": len(subs), "pendingSubmissions": pending,
-		"totalDownloads": downloads, "featuredApps": featured,
+		"totalDownloads": dl, "featuredApps": feat,
 	})
 }
 
 func AdminListApps(w http.ResponseWriter, r *http.Request) {
-	defer func() {
-		if rec := recover(); rec != nil {
-			writeErr(w, 500, fmt.Sprintf("panic: %v", rec))
-		}
-	}()
-	ctx := r.Context()
-	db := firebase.Client()
-	if db == nil {
-		writeErr(w, 503, "Firebase not ready")
-		return
-	}
-	catNames, _ := loadCatNames(ctx)
-	docs, err := db.Collection("apps").Documents(ctx).GetAll()
+	rows, err := db().ReadAll(r.Context(), "apps")
 	if err != nil {
 		writeErr(w, 500, err.Error())
 		return
 	}
-	rows := make([]map[string]any, 0, len(docs))
-	for _, doc := range docs {
-		rows = append(rows, mapApp(doc.Data(), catNames))
+	names := map[int64]string{}
+	if cats, e := db().ReadAll(r.Context(), "categories"); e == nil {
+		for _, c := range cats {
+			names[ghdb.ToInt(c["id"])] = asString(c["name"])
+		}
 	}
-	writeJSON(w, 200, rows)
+	out := make([]map[string]any, 0, len(rows))
+	for _, d := range rows {
+		out = append(out, mapApp(d, names))
+	}
+	writeJSON(w, 200, out)
 }
 
 func AdminCreateApp(w http.ResponseWriter, r *http.Request) {
@@ -434,102 +369,77 @@ func AdminCreateApp(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	ctx := r.Context()
-	id, err := firebase.NextID(ctx, "apps")
+	id, err := db().NextID(r.Context(), "apps")
 	if err != nil {
 		writeErr(w, 500, err.Error())
 		return
 	}
 	row := map[string]any{
 		"id": id, "name": body["name"], "packageName": body["packageName"],
-		"description": body["description"], "categoryId": asInt(body["categoryId"]),
+		"description": body["description"], "categoryId": ghdb.ToInt(body["categoryId"]),
 		"version": strOr(body["version"], "1.0.0"), "size": strOr(body["size"], "10 MB"),
 		"iconUrl": body["iconUrl"], "screenshotUrls": body["screenshotUrls"],
 		"downloadUrl": body["downloadUrl"], "developerSlug": body["developerSlug"],
 		"developerLogoUrl": strOr(body["developerLogoUrl"], ""),
 		"developerDescription": strOr(body["developerDescription"], ""),
-		"scanStatus": strOr(body["scanStatus"], "pending"), "scanReport": body["scanReport"],
+		"scanStatus": strOr(body["scanStatus"], "pending"),
 		"downloads": int64(0), "rating": float64(0), "reviewCount": int64(0),
 		"isFeatured": asBool(body["isFeatured"]), "isActive": true,
-		"developer": body["developer"],
-		"createdAt": time.Now().UTC().Format(time.RFC3339),
+		"developer": body["developer"], "createdAt": time.Now().UTC().Format(time.RFC3339),
 	}
 	if row["screenshotUrls"] == nil {
-		row["screenshotUrls"] = []string{}
+		row["screenshotUrls"] = []any{}
 	}
-	_, err = firebase.Client().Collection("apps").Doc(strconv.FormatInt(id, 10)).Set(ctx, row)
-	if err != nil {
+	if err := db().UpsertByID(r.Context(), "apps", id, row); err != nil {
 		writeErr(w, 500, err.Error())
 		return
 	}
-	catNames, _ := loadCatNames(ctx)
-	triggerDataSync()
-	writeJSON(w, 201, mapApp(row, catNames))
+	writeJSON(w, 201, row)
 }
 
 func AdminUpdateApp(w http.ResponseWriter, r *http.Request) {
-	idStr := strings.TrimPrefix(r.URL.Path, "/api/admin/apps/")
-	id, _ := strconv.ParseInt(idStr, 10, 64)
+	id, _ := strconv.ParseInt(strings.TrimPrefix(r.URL.Path, "/api/admin/apps/"), 10, 64)
 	var body map[string]any
 	_ = json.NewDecoder(r.Body).Decode(&body)
-	ctx := r.Context()
-	ref := firebase.Client().Collection("apps").Doc(strconv.FormatInt(id, 10))
-	doc, err := ref.Get(ctx)
-	if err != nil || !doc.Exists() {
+	row, err := db().GetByID(r.Context(), "apps", id)
+	if err != nil {
 		writeErr(w, 404, "App not found.")
 		return
 	}
-	_, err = ref.Set(ctx, body, firestore.MergeAll)
-	if err != nil {
+	for k, v := range body {
+		row[k] = v
+	}
+	if err := db().UpsertByID(r.Context(), "apps", id, row); err != nil {
 		writeErr(w, 500, err.Error())
 		return
 	}
-	doc, _ = ref.Get(ctx)
-	catNames, _ := loadCatNames(ctx)
-	triggerDataSync()
-	writeJSON(w, 200, mapApp(doc.Data(), catNames))
+	writeJSON(w, 200, row)
 }
 
 func AdminDeleteApp(w http.ResponseWriter, r *http.Request) {
-	idStr := strings.TrimPrefix(r.URL.Path, "/api/admin/apps/")
-	id, _ := strconv.ParseInt(idStr, 10, 64)
-	_, err := firebase.Client().Collection("apps").Doc(strconv.FormatInt(id, 10)).Delete(r.Context())
-	if err != nil {
+	id, _ := strconv.ParseInt(strings.TrimPrefix(r.URL.Path, "/api/admin/apps/"), 10, 64)
+	if err := db().DeleteByID(r.Context(), "apps", id); err != nil {
 		writeErr(w, 500, err.Error())
 		return
 	}
-	triggerDataSync()
 	w.WriteHeader(204)
 }
 
 func ListSubmissions(w http.ResponseWriter, r *http.Request) {
-	defer func() {
-		if rec := recover(); rec != nil {
-			writeErr(w, 500, fmt.Sprintf("panic: %v", rec))
-		}
-	}()
 	status := r.URL.Query().Get("status")
-	ctx := r.Context()
-	db := firebase.Client()
-	if db == nil {
-		writeErr(w, 503, "Firebase not ready")
-		return
-	}
-	docs, err := db.Collection("submissions").Documents(ctx).GetAll()
+	rows, err := db().ReadAll(r.Context(), "submissions")
 	if err != nil {
 		writeErr(w, 500, err.Error())
 		return
 	}
-	rows := make([]map[string]any, 0)
-	for _, doc := range docs {
-		d := doc.Data()
+	out := make([]map[string]any, 0)
+	for _, d := range rows {
 		if status != "" && asString(d["status"]) != status {
 			continue
 		}
-		d["id"] = asInt(d["id"])
-		rows = append(rows, d)
+		out = append(out, d)
 	}
-	writeJSON(w, 200, rows)
+	writeJSON(w, 200, out)
 }
 
 func SubmitApp(w http.ResponseWriter, r *http.Request) {
@@ -565,8 +475,7 @@ func SubmitApp(w http.ResponseWriter, r *http.Request) {
 	if slug == "" {
 		slug = strings.ToLower(strings.ReplaceAll(devName, " ", "-"))
 	}
-	ctx := r.Context()
-	id, err := firebase.NextID(ctx, "submissions")
+	id, err := db().NextID(r.Context(), "submissions")
 	if err != nil {
 		writeErr(w, 500, err.Error())
 		return
@@ -579,18 +488,16 @@ func SubmitApp(w http.ResponseWriter, r *http.Request) {
 		"version": strOr(body["version"], "1.0.0"), "size": strOr(body["size"], "Unknown"),
 		"categoryName": strOr(body["categoryName"], strOr(body["category"], "Other")),
 		"iconUrl": icon, "apkUrl": apk, "screenshotUrls": body["screenshotUrls"],
-		"scanStatus": "pending", "scanReport": nil, "status": "pending",
-		"reviewNote": nil, "submittedAt": time.Now().UTC().Format(time.RFC3339), "reviewedAt": nil,
+		"scanStatus": "pending", "status": "pending",
+		"submittedAt": time.Now().UTC().Format(time.RFC3339),
 	}
 	if row["screenshotUrls"] == nil {
-		row["screenshotUrls"] = []string{}
+		row["screenshotUrls"] = []any{}
 	}
-	_, err = firebase.Client().Collection("submissions").Doc(strconv.FormatInt(id, 10)).Set(ctx, row)
-	if err != nil {
+	if err := db().UpsertByID(r.Context(), "submissions", id, row); err != nil {
 		writeErr(w, 500, err.Error())
 		return
 	}
-	triggerDataSync()
 	writeJSON(w, 201, row)
 }
 
@@ -598,52 +505,46 @@ func ApproveSubmission(w http.ResponseWriter, r *http.Request) {
 	idStr := strings.TrimPrefix(r.URL.Path, "/api/admin/submissions/")
 	idStr = strings.TrimSuffix(idStr, "/approve")
 	id, _ := strconv.ParseInt(idStr, 10, 64)
-	ctx := r.Context()
-	ref := firebase.Client().Collection("submissions").Doc(strconv.FormatInt(id, 10))
-	doc, err := ref.Get(ctx)
-	if err != nil || !doc.Exists() {
+	sub, err := db().GetByID(r.Context(), "submissions", id)
+	if err != nil {
 		writeErr(w, 404, "Not found.")
 		return
 	}
-	d := doc.Data()
-	catName := asString(d["categoryName"])
+	catName := asString(sub["categoryName"])
 	if catName == "" {
 		catName = "Other"
 	}
-	catID := int64(0)
-	catDocs, _ := firebase.Client().Collection("categories").Documents(ctx).GetAll()
-	for _, cd := range catDocs {
-		if asString(cd.Data()["name"]) == catName {
-			catID = asInt(cd.Data()["id"])
+	cats, _ := db().ReadAll(r.Context(), "categories")
+	var catID int64
+	for _, c := range cats {
+		if asString(c["name"]) == catName {
+			catID = ghdb.ToInt(c["id"])
 			break
 		}
 	}
 	if catID == 0 {
-		catID, _ = firebase.NextID(ctx, "categories")
-		_, _ = firebase.Client().Collection("categories").Doc(strconv.FormatInt(catID, 10)).Set(ctx, map[string]any{
+		catID, _ = db().NextID(r.Context(), "categories")
+		_ = db().UpsertByID(r.Context(), "categories", catID, map[string]any{
 			"id": catID, "name": catName, "icon": "Package",
 			"createdAt": time.Now().UTC().Format(time.RFC3339),
 		})
 	}
-	appID, _ := firebase.NextID(ctx, "apps")
+	appID, _ := db().NextID(r.Context(), "apps")
 	app := map[string]any{
-		"id": appID, "name": d["appName"], "packageName": d["packageName"],
-		"description": d["description"], "categoryId": catID,
-		"version": strOr(d["version"], "1.0.0"), "size": strOr(d["size"], "Unknown"),
-		"iconUrl": d["iconUrl"], "screenshotUrls": d["screenshotUrls"],
-		"downloadUrl": d["apkUrl"], "developerSlug": d["developerSlug"],
-		"developerLogoUrl": d["developerLogoUrl"], "developerDescription": d["developerDescription"],
-		"scanStatus": "safe", "downloads": int64(0), "rating": float64(0), "reviewCount": int64(0),
-		"isFeatured": false, "isActive": true, "developer": d["developerName"],
+		"id": appID, "name": sub["appName"], "packageName": sub["packageName"],
+		"description": sub["description"], "categoryId": catID,
+		"version": sub["version"], "size": sub["size"], "iconUrl": sub["iconUrl"],
+		"screenshotUrls": sub["screenshotUrls"], "downloadUrl": sub["apkUrl"],
+		"developerSlug": sub["developerSlug"], "scanStatus": "safe",
+		"downloads": int64(0), "rating": float64(0), "reviewCount": int64(0),
+		"isFeatured": false, "isActive": true, "developer": sub["developerName"],
 		"createdAt": time.Now().UTC().Format(time.RFC3339),
 	}
-	_, _ = firebase.Client().Collection("apps").Doc(strconv.FormatInt(appID, 10)).Set(ctx, app)
-	_, _ = ref.Set(ctx, map[string]any{
-		"status": "approved", "reviewedAt": time.Now().UTC().Format(time.RFC3339),
-	}, firestore.MergeAll)
-	catNames, _ := loadCatNames(ctx)
-	triggerDataSync()
-	writeJSON(w, 200, map[string]any{"submission": "approved", "app": mapApp(app, catNames)})
+	_ = db().UpsertByID(r.Context(), "apps", appID, app)
+	sub["status"] = "approved"
+	sub["reviewedAt"] = time.Now().UTC().Format(time.RFC3339)
+	_ = db().UpsertByID(r.Context(), "submissions", id, sub)
+	writeJSON(w, 200, map[string]any{"submission": "approved", "app": app})
 }
 
 func RejectSubmission(w http.ResponseWriter, r *http.Request) {
@@ -654,59 +555,154 @@ func RejectSubmission(w http.ResponseWriter, r *http.Request) {
 		Note string `json:"note"`
 	}
 	_ = json.NewDecoder(r.Body).Decode(&body)
-	ctx := r.Context()
-	ref := firebase.Client().Collection("submissions").Doc(strconv.FormatInt(id, 10))
-	_, err := ref.Set(ctx, map[string]any{
-		"status": "rejected", "reviewNote": body.Note,
-		"reviewedAt": time.Now().UTC().Format(time.RFC3339),
-	}, firestore.MergeAll)
+	sub, err := db().GetByID(r.Context(), "submissions", id)
 	if err != nil {
-		writeErr(w, 500, err.Error())
+		writeErr(w, 404, "Not found.")
 		return
 	}
+	sub["status"] = "rejected"
+	sub["reviewNote"] = body.Note
+	sub["reviewedAt"] = time.Now().UTC().Format(time.RFC3339)
+	_ = db().UpsertByID(r.Context(), "submissions", id, sub)
 	writeJSON(w, 200, map[string]any{"ok": true, "status": "rejected"})
 }
 
-func StorageStatus(w http.ResponseWriter, r *http.Request) {
-	c := storage.NewFromEnv()
-	st := map[string]any{
-		"apk":  c.Status(),
-		"data": map[string]any{},
-	}
-	if ds := storage.GlobalSync(); ds != nil {
-		st["data"] = ds.Status()
-	}
-	writeJSON(w, 200, st)
-}
-
-// SyncDataNow force-pushes Firestore snapshot to GitHub (admin).
-func SyncDataNow(w http.ResponseWriter, r *http.Request) {
-	ds := storage.GlobalSync()
-	if ds == nil || !ds.Enabled() {
-		writeErr(w, 503, "data sync not configured")
-		return
-	}
-	res, err := ds.MaybePush(r.Context(), firebase.Client(), true)
+func ListSettings(w http.ResponseWriter, r *http.Request) {
+	rows, err := db().ReadAll(r.Context(), "settings")
 	if err != nil {
 		writeErr(w, 500, err.Error())
 		return
 	}
-	writeJSON(w, 200, res)
+	writeJSON(w, 200, rows)
+}
+
+func SetSetting(w http.ResponseWriter, r *http.Request) {
+	key := strings.TrimPrefix(r.URL.Path, "/api/admin/settings/")
+	var body struct {
+		Value string `json:"value"`
+	}
+	_ = json.NewDecoder(r.Body).Decode(&body)
+	rows, _ := db().ReadAll(r.Context(), "settings")
+	found := false
+	for i := range rows {
+		if asString(rows[i]["key"]) == key {
+			rows[i]["value"] = body.Value
+			rows[i]["updatedAt"] = time.Now().UTC().Format(time.RFC3339)
+			found = true
+			break
+		}
+	}
+	if !found {
+		rows = append(rows, map[string]any{
+			"key": key, "value": body.Value,
+			"updatedAt": time.Now().UTC().Format(time.RFC3339),
+		})
+	}
+	if err := db().WriteAll(r.Context(), "settings", rows, "setting "+key); err != nil {
+		writeErr(w, 500, err.Error())
+		return
+	}
+	writeJSON(w, 200, map[string]any{"key": key, "value": body.Value})
+}
+
+func ListDevelopers(w http.ResponseWriter, r *http.Request) {
+	rows, err := db().ReadAll(r.Context(), "developer_profiles")
+	if err != nil {
+		writeErr(w, 500, err.Error())
+		return
+	}
+	writeJSON(w, 200, rows)
+}
+
+func GetDeveloper(w http.ResponseWriter, r *http.Request) {
+	slug := strings.TrimPrefix(r.URL.Path, "/api/developers/")
+	rows, err := db().ReadAll(r.Context(), "developer_profiles")
+	if err != nil {
+		writeErr(w, 500, err.Error())
+		return
+	}
+	for _, d := range rows {
+		if asString(d["slug"]) == slug {
+			apps, _ := db().ReadAll(r.Context(), "apps")
+			mine := make([]map[string]any, 0)
+			for _, a := range apps {
+				if asString(a["developerSlug"]) == slug {
+					mine = append(mine, a)
+				}
+			}
+			d["apps"] = mine
+			writeJSON(w, 200, d)
+			return
+		}
+	}
+	writeErr(w, 404, "Developer not found.")
+}
+
+func UpsertDeveloper(w http.ResponseWriter, r *http.Request) {
+	var body map[string]any
+	_ = json.NewDecoder(r.Body).Decode(&body)
+	slug := strings.TrimSpace(asString(body["slug"]))
+	name := strings.TrimSpace(asString(body["name"]))
+	if slug == "" || name == "" {
+		writeErr(w, 400, "slug and name required.")
+		return
+	}
+	rows, _ := db().ReadAll(r.Context(), "developer_profiles")
+	now := time.Now().UTC().Format(time.RFC3339)
+	body["slug"] = slug
+	body["name"] = name
+	body["updatedAt"] = now
+	found := false
+	for i := range rows {
+		if asString(rows[i]["slug"]) == slug {
+			if rows[i]["createdAt"] == nil {
+				body["createdAt"] = now
+			} else {
+				body["createdAt"] = rows[i]["createdAt"]
+			}
+			rows[i] = body
+			found = true
+			break
+		}
+	}
+	if !found {
+		body["createdAt"] = now
+		rows = append(rows, body)
+	}
+	if err := db().WriteAll(r.Context(), "developer_profiles", rows, "developer "+slug); err != nil {
+		writeErr(w, 500, err.Error())
+		return
+	}
+	writeJSON(w, 201, body)
+}
+
+func StorageStatus(w http.ResponseWriter, r *http.Request) {
+	writeJSON(w, 200, map[string]any{
+		"database": db().Status(),
+		"apk":      storage.NewFromEnv().Status(),
+	})
+}
+
+func SyncDataNow(w http.ResponseWriter, r *http.Request) {
+	writeJSON(w, 200, map[string]any{
+		"ok": true, "message": "Phase 2: data already lives on GitHub (db/*.json). No separate push needed.",
+		"database": db().Status(),
+	})
 }
 
 func UploadAPK(w http.ResponseWriter, r *http.Request) {
 	c := storage.NewFromEnv()
 	if c.Token == "" {
-		writeErr(w, 503, "GitHub storage not configured (GITHUB_STORAGE_TOKEN)")
+		writeErr(w, 503, "GITHUB_STORAGE_TOKEN required")
 		return
 	}
 	if err := r.ParseMultipartForm(512 << 20); err != nil {
-		writeErr(w, 400, "Invalid multipart form (max 512MB)")
+		writeErr(w, 400, "Invalid multipart (max 512MB)")
 		return
 	}
 	file, hdr, err := r.FormFile("file")
 	if err != nil {
-		writeErr(w, 400, "file field required")
+		writeErr(w, 400, "file required")
 		return
 	}
 	defer file.Close()
@@ -729,66 +725,30 @@ func UploadAPK(w http.ResponseWriter, r *http.Request) {
 	}
 	repo, err := c.PickRepo(int64(len(data)))
 	if err != nil {
-		writeErr(w, 500, "pick repo: "+err.Error())
+		writeErr(w, 500, err.Error())
 		return
 	}
 	url, size, err := c.UploadAPK(repo.Name, tag, assetName, data)
 	if err != nil {
-		writeErr(w, 500, "upload: "+err.Error())
+		writeErr(w, 500, err.Error())
 		return
 	}
-	// Optional: link this release URL to an app record
-	appID := asInt(r.FormValue("appId"))
-	if appID > 0 && firebase.Client() != nil {
-		_, _ = firebase.Client().Collection("apps").Doc(strconv.FormatInt(appID, 10)).Set(
-			r.Context(),
-			map[string]any{
-				"downloadUrl": url,
-				"apkRepo":     repo.FullName,
-				"apkTag":      tag,
-				"apkAsset":    assetName,
-				"apkSize":     size,
-				"updatedAt":   time.Now().UTC().Format(time.RFC3339),
-			},
-			firestore.MergeAll,
-		)
-		triggerDataSync()
+	appID := ghdb.ToInt(r.FormValue("appId"))
+	if appID > 0 {
+		if row, err := db().GetByID(r.Context(), "apps", appID); err == nil {
+			row["downloadUrl"] = url
+			row["apkRepo"] = repo.FullName
+			row["apkTag"] = tag
+			_ = db().UpsertByID(r.Context(), "apps", appID, row)
+		}
 	}
 	writeJSON(w, 201, map[string]any{
 		"ok": true, "repo": repo.FullName, "tag": tag, "asset": assetName,
 		"size": size, "downloadUrl": url, "appId": appID,
-		"message": "APK on GitHub Releases — users download from this URL",
 	})
 }
 
-func triggerDataSync() {
-	if ds := storage.GlobalSync(); ds != nil {
-		ds.AfterWrite(firebase.Client())
-	}
-}
-
-func asInt(v any) int64 {
-	switch t := v.(type) {
-	case int64:
-		return t
-	case int:
-		return int64(t)
-	case float64:
-		return int64(t)
-	case json.Number:
-		n, _ := t.Int64()
-		return n
-	case string:
-		n, _ := strconv.ParseInt(t, 10, 64)
-		return n
-	default:
-		return 0
-	}
-}
-func asBool(v any) bool {
-	b, _ := v.(bool)
-	return b
-}
+func asBool(v any) bool { b, _ := v.(bool); return b }
 func asString(v any) string {
 	s, _ := v.(string)
 	return s
@@ -800,41 +760,6 @@ func strOr(v any, def string) string {
 	}
 	return s
 }
-func mapApp(d map[string]any, catNames map[int64]string) map[string]any {
-	id := asInt(d["id"])
-	cid := asInt(d["categoryId"])
-	return map[string]any{
-		"id": id, "name": d["name"], "packageName": d["packageName"],
-		"description": d["description"], "categoryId": cid,
-		"categoryName": catNames[cid], "version": d["version"], "size": d["size"],
-		"iconUrl": d["iconUrl"], "screenshotUrls": d["screenshotUrls"],
-		"downloadUrl": d["downloadUrl"], "developerSlug": d["developerSlug"],
-		"developerLogoUrl": d["developerLogoUrl"], "developerDescription": d["developerDescription"],
-		"scanStatus": d["scanStatus"], "scanReport": d["scanReport"],
-		"downloads": asInt(d["downloads"]), "rating": d["rating"], "reviewCount": asInt(d["reviewCount"]),
-		"isFeatured": asBool(d["isFeatured"]), "isActive": d["isActive"] != false,
-		"developer": d["developer"], "createdAt": toISO(d["createdAt"]),
-	}
-}
-func loadCatNames(ctx context.Context) (map[int64]string, error) {
-	m := map[int64]string{}
-	db := firebase.Client()
-	if db == nil {
-		return m, fmt.Errorf("no firestore")
-	}
-	docs, err := db.Collection("categories").Documents(ctx).GetAll()
-	if err != nil {
-		return m, err
-	}
-	for _, doc := range docs {
-		d := doc.Data()
-		id := asInt(d["id"])
-		if id == 0 {
-			if n, e := strconv.ParseInt(doc.Ref.ID, 10, 64); e == nil {
-				id = n
-			}
-		}
-		m[id] = asString(d["name"])
-	}
-	return m, nil
-}
+
+// silence unused
+var _ = fmt.Sprintf

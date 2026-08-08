@@ -51,6 +51,9 @@ func Health(w http.ResponseWriter, r *http.Request) {
 			"owner":   st.Owner,
 			"prefix":  st.Prefix,
 			"maxGB":   3,
+			"dataRepo": "div-store-data",
+			"apkRepos": []string{"div-store-apks-01", "div-store-apks-02"},
+			"syncEvery": "3m",
 		},
 		"time": time.Now().UTC().Format(time.RFC3339),
 	})

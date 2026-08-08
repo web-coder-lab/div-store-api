@@ -6,10 +6,12 @@ import (
 	"net/http"
 	"os"
 	"strings"
+	"time"
 
 	"github.com/husdainshah2-web/div-store/internal/firebase"
 	"github.com/husdainshah2-web/div-store/internal/handlers"
 	"github.com/husdainshah2-web/div-store/internal/middleware"
+	"github.com/husdainshah2-web/div-store/internal/storage"
 )
 
 func main() {
@@ -17,6 +19,8 @@ func main() {
 		log.Printf("[firebase] init warning: %v", err)
 	} else {
 		log.Printf("[firebase] OK project=%s", firebase.ProjectID())
+	sync := storage.NewDataSyncFromEnv()
+	sync.StartBackground(firebase.Client(), 3*time.Minute)
 	}
 
 	mux := http.NewServeMux()

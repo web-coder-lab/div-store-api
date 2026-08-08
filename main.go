@@ -69,6 +69,31 @@ func main() {
 		}
 		http.Error(w, "method not allowed", 405)
 	})
+	mux.HandleFunc("/api/developers", func(w http.ResponseWriter, r *http.Request) {
+		switch r.Method {
+		case http.MethodGet:
+			handlers.ListDevelopers(w, r)
+		case http.MethodPost:
+			middleware.RequireAdmin(handlers.UpsertDeveloper)(w, r)
+		default:
+			http.Error(w, "method not allowed", 405)
+		}
+	})
+	mux.HandleFunc("/api/developers/", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodGet {
+			handlers.GetDeveloper(w, r)
+			return
+		}
+		http.Error(w, "method not allowed", 405)
+	})
+	mux.HandleFunc("/api/admin/settings", middleware.RequireAdmin(handlers.ListSettings))
+	mux.HandleFunc("/api/admin/settings/", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodPut || r.Method == http.MethodPost {
+			middleware.RequireAdmin(handlers.SetSetting)(w, r)
+			return
+		}
+		http.Error(w, "method not allowed", 405)
+	})
 	mux.HandleFunc("/api/submit", func(w http.ResponseWriter, r *http.Request) {
 		if r.Method == http.MethodPost {
 			handlers.SubmitApp(w, r)

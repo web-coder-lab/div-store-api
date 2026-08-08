@@ -3,6 +3,7 @@ package handlers
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"io"
 	"net/http"
 	"path/filepath"
@@ -13,7 +14,6 @@ import (
 	"cloud.google.com/go/firestore"
 	"github.com/husdainshah2-web/div-store/internal/firebase"
 	"github.com/husdainshah2-web/div-store/internal/storage"
-	"google.golang.org/api/iterator"
 )
 
 func writeJSON(w http.ResponseWriter, code int, v any) {
@@ -31,10 +31,11 @@ func toISO(v any) string {
 	case time.Time:
 		return t.UTC().Format(time.RFC3339)
 	case string:
-		return t
-	default:
-		return time.Now().UTC().Format(time.RFC3339)
+		if t != "" {
+			return t
+		}
 	}
+	return time.Now().UTC().Format(time.RFC3339)
 }
 
 func Health(w http.ResponseWriter, r *http.Request) {
@@ -42,7 +43,7 @@ func Health(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, 200, map[string]any{
 		"status":   "ok",
 		"name":     "Div Store API",
-		"version":  "1.0.1-go",
+		"version":  "1.0.2-go",
 		"engine":   "go",
 		"firebase": firebase.Status(),
 		"storage": map[string]any{
@@ -56,8 +57,17 @@ func Health(w http.ResponseWriter, r *http.Request) {
 }
 
 func ListApps(w http.ResponseWriter, r *http.Request) {
+	defer func() {
+		if rec := recover(); rec != nil {
+			writeErr(w, 500, fmt.Sprintf("panic: %v", rec))
+		}
+	}()
 	ctx := r.Context()
 	db := firebase.Client()
+	if db == nil {
+		writeErr(w, 503, "Firebase not ready")
+		return
+	}
 	q := r.URL.Query()
 	search := strings.ToLower(q.Get("search"))
 	category := q.Get("category")
@@ -71,21 +81,10 @@ func ListApps(w http.ResponseWriter, r *http.Request) {
 		offset = 0
 	}
 
-	catNames := map[int64]string{}
-	cit := db.Collection("categories").Documents(ctx)
-	for {
-		doc, err := cit.Next()
-		if err == iterator.Done {
-			break
-		}
-		if err != nil {
-			break
-		}
-		d := doc.Data()
-		id := asInt(d["id"])
-		if n, ok := d["name"].(string); ok {
-			catNames[id] = n
-		}
+	catNames, err := loadCatNames(ctx)
+	if err != nil {
+		writeErr(w, 500, "categories: "+err.Error())
+		return
 	}
 
 	var catID int64 = -1
@@ -98,20 +97,17 @@ func ListApps(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	var rows []map[string]any
-	it := db.Collection("apps").Documents(ctx)
-	for {
-		doc, err := it.Next()
-		if err == iterator.Done {
-			break
-		}
-		if err != nil {
-			writeErr(w, 500, "Internal server error.")
-			return
-		}
+	docs, err := db.Collection("apps").Documents(ctx).GetAll()
+	if err != nil {
+		writeErr(w, 500, "apps: "+err.Error())
+		return
+	}
+
+	rows := make([]map[string]any, 0)
+	for _, doc := range docs {
 		d := doc.Data()
 		app := mapApp(d, catNames)
-		if active, ok := d["isActive"].(bool); ok && !active {
+		if v, ok := d["isActive"]; ok && v == false {
 			continue
 		}
 		if catID >= 0 && asInt(d["categoryId"]) != catID {
@@ -132,7 +128,6 @@ func ListApps(w http.ResponseWriter, r *http.Request) {
 		}
 		rows = append(rows, app)
 	}
-	// sort by downloads desc (simple)
 	for i := 0; i < len(rows); i++ {
 		for j := i + 1; j < len(rows); j++ {
 			if asInt(rows[j]["downloads"]) > asInt(rows[i]["downloads"]) {
@@ -159,50 +154,59 @@ func GetApp(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	ctx := r.Context()
-	doc, err := firebase.Client().Collection("apps").Doc(strconv.FormatInt(id, 10)).Get(ctx)
+	db := firebase.Client()
+	if db == nil {
+		writeErr(w, 503, "Firebase not ready")
+		return
+	}
+	doc, err := db.Collection("apps").Doc(strconv.FormatInt(id, 10)).Get(ctx)
 	if err != nil || !doc.Exists() {
 		writeErr(w, 404, "App not found.")
 		return
 	}
-	catNames := loadCatNames(ctx)
+	catNames, _ := loadCatNames(ctx)
 	writeJSON(w, 200, mapApp(doc.Data(), catNames))
 }
 
 func ListCategories(w http.ResponseWriter, r *http.Request) {
+	defer func() {
+		if rec := recover(); rec != nil {
+			writeErr(w, 500, fmt.Sprintf("panic: %v", rec))
+		}
+	}()
 	ctx := r.Context()
 	db := firebase.Client()
+	if db == nil {
+		writeErr(w, 503, "Firebase not ready")
+		return
+	}
+	appDocs, err := db.Collection("apps").Documents(ctx).GetAll()
+	if err != nil {
+		writeErr(w, 500, "apps count: "+err.Error())
+		return
+	}
 	counts := map[int64]int{}
-	ait := db.Collection("apps").Documents(ctx)
-	for {
-		doc, err := ait.Next()
-		if err == iterator.Done {
-			break
-		}
-		if err != nil {
-			break
-		}
+	for _, doc := range appDocs {
 		cid := asInt(doc.Data()["categoryId"])
 		counts[cid]++
 	}
-	var rows []map[string]any
-	it := db.Collection("categories").Documents(ctx)
-	for {
-		doc, err := it.Next()
-		if err == iterator.Done {
-			break
-		}
-		if err != nil {
-			writeErr(w, 500, "Internal server error.")
-			return
-		}
+	catDocs, err := db.Collection("categories").Documents(ctx).GetAll()
+	if err != nil {
+		writeErr(w, 500, "categories: "+err.Error())
+		return
+	}
+	rows := make([]map[string]any, 0)
+	for _, doc := range catDocs {
 		d := doc.Data()
 		id := asInt(d["id"])
+		if id == 0 {
+			if n, err := strconv.ParseInt(doc.Ref.ID, 10, 64); err == nil {
+				id = n
+			}
+		}
 		rows = append(rows, map[string]any{
-			"id":        id,
-			"name":      d["name"],
-			"icon":      d["icon"],
-			"createdAt": toISO(d["createdAt"]),
-			"appCount":  counts[id],
+			"id": id, "name": d["name"], "icon": strOr(d["icon"], "Package"),
+			"createdAt": toISO(d["createdAt"]), "appCount": counts[id],
 		})
 	}
 	writeJSON(w, 200, rows)
@@ -223,7 +227,7 @@ func CreateCategory(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	id, err := firebase.NextID(ctx, "categories")
 	if err != nil {
-		writeErr(w, 500, "Internal server error.")
+		writeErr(w, 500, "counter: "+err.Error())
 		return
 	}
 	row := map[string]any{
@@ -232,7 +236,7 @@ func CreateCategory(w http.ResponseWriter, r *http.Request) {
 	}
 	_, err = firebase.Client().Collection("categories").Doc(strconv.FormatInt(id, 10)).Set(ctx, row)
 	if err != nil {
-		writeErr(w, 500, "Internal server error.")
+		writeErr(w, 500, "write: "+err.Error())
 		return
 	}
 	row["appCount"] = 0
@@ -248,34 +252,35 @@ func DeleteCategory(w http.ResponseWriter, r *http.Request) {
 	}
 	_, err := firebase.Client().Collection("categories").Doc(strconv.FormatInt(id, 10)).Delete(r.Context())
 	if err != nil {
-		writeErr(w, 500, "Internal server error.")
+		writeErr(w, 500, err.Error())
 		return
 	}
 	w.WriteHeader(204)
 }
 
 func ListReviews(w http.ResponseWriter, r *http.Request) {
-	// /api/apps/:id/reviews
 	parts := strings.Split(strings.Trim(r.URL.Path, "/"), "/")
-	// api apps id reviews
 	if len(parts) < 4 {
 		writeErr(w, 400, "Invalid path.")
 		return
 	}
 	id, _ := strconv.ParseInt(parts[2], 10, 64)
 	ctx := r.Context()
-	it := firebase.Client().Collection("reviews").Where("appId", "==", id).Documents(ctx)
-	var rows []map[string]any
-	for {
-		doc, err := it.Next()
-		if err == iterator.Done {
-			break
-		}
+	docs, err := firebase.Client().Collection("reviews").Where("appId", "==", id).Documents(ctx).GetAll()
+	if err != nil {
+		// fallback: scan all
+		docs, err = firebase.Client().Collection("reviews").Documents(ctx).GetAll()
 		if err != nil {
-			writeErr(w, 500, "Internal server error.")
+			writeErr(w, 500, err.Error())
 			return
 		}
+	}
+	rows := make([]map[string]any, 0)
+	for _, doc := range docs {
 		d := doc.Data()
+		if asInt(d["appId"]) != id {
+			continue
+		}
 		rows = append(rows, map[string]any{
 			"id": asInt(d["id"]), "appId": asInt(d["appId"]),
 			"reviewerName": d["reviewerName"], "rating": asInt(d["rating"]),
@@ -313,7 +318,7 @@ func CreateReview(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	id, err := firebase.NextID(ctx, "reviews")
 	if err != nil {
-		writeErr(w, 500, "Internal server error.")
+		writeErr(w, 500, err.Error())
 		return
 	}
 	row := map[string]any{
@@ -323,7 +328,7 @@ func CreateReview(w http.ResponseWriter, r *http.Request) {
 	}
 	_, err = firebase.Client().Collection("reviews").Doc(strconv.FormatInt(id, 10)).Set(ctx, row)
 	if err != nil {
-		writeErr(w, 500, "Internal server error.")
+		writeErr(w, 500, err.Error())
 		return
 	}
 	writeJSON(w, 201, row)
@@ -350,6 +355,10 @@ func DownloadApp(w http.ResponseWriter, r *http.Request) {
 func AdminStats(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	db := firebase.Client()
+	if db == nil {
+		writeErr(w, 503, "Firebase not ready")
+		return
+	}
 	apps, _ := db.Collection("apps").Documents(ctx).GetAll()
 	cats, _ := db.Collection("categories").Documents(ctx).GetAll()
 	revs, _ := db.Collection("reviews").Documents(ctx).GetAll()
@@ -377,19 +386,25 @@ func AdminStats(w http.ResponseWriter, r *http.Request) {
 }
 
 func AdminListApps(w http.ResponseWriter, r *http.Request) {
+	defer func() {
+		if rec := recover(); rec != nil {
+			writeErr(w, 500, fmt.Sprintf("panic: %v", rec))
+		}
+	}()
 	ctx := r.Context()
-	catNames := loadCatNames(ctx)
-	it := firebase.Client().Collection("apps").Documents(ctx)
-	var rows []map[string]any
-	for {
-		doc, err := it.Next()
-		if err == iterator.Done {
-			break
-		}
-		if err != nil {
-			writeErr(w, 500, "Internal server error.")
-			return
-		}
+	db := firebase.Client()
+	if db == nil {
+		writeErr(w, 503, "Firebase not ready")
+		return
+	}
+	catNames, _ := loadCatNames(ctx)
+	docs, err := db.Collection("apps").Documents(ctx).GetAll()
+	if err != nil {
+		writeErr(w, 500, err.Error())
+		return
+	}
+	rows := make([]map[string]any, 0, len(docs))
+	for _, doc := range docs {
 		rows = append(rows, mapApp(doc.Data(), catNames))
 	}
 	writeJSON(w, 200, rows)
@@ -410,7 +425,7 @@ func AdminCreateApp(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	id, err := firebase.NextID(ctx, "apps")
 	if err != nil {
-		writeErr(w, 500, "Internal server error.")
+		writeErr(w, 500, err.Error())
 		return
 	}
 	row := map[string]any{
@@ -432,10 +447,11 @@ func AdminCreateApp(w http.ResponseWriter, r *http.Request) {
 	}
 	_, err = firebase.Client().Collection("apps").Doc(strconv.FormatInt(id, 10)).Set(ctx, row)
 	if err != nil {
-		writeErr(w, 500, "Internal server error.")
+		writeErr(w, 500, err.Error())
 		return
 	}
-	writeJSON(w, 201, mapApp(row, loadCatNames(ctx)))
+	catNames, _ := loadCatNames(ctx)
+	writeJSON(w, 201, mapApp(row, catNames))
 }
 
 func AdminUpdateApp(w http.ResponseWriter, r *http.Request) {
@@ -452,39 +468,45 @@ func AdminUpdateApp(w http.ResponseWriter, r *http.Request) {
 	}
 	_, err = ref.Set(ctx, body, firestore.MergeAll)
 	if err != nil {
-		writeErr(w, 500, "Internal server error.")
+		writeErr(w, 500, err.Error())
 		return
 	}
 	doc, _ = ref.Get(ctx)
-	writeJSON(w, 200, mapApp(doc.Data(), loadCatNames(ctx)))
+	catNames, _ := loadCatNames(ctx)
+	writeJSON(w, 200, mapApp(doc.Data(), catNames))
 }
 
 func AdminDeleteApp(w http.ResponseWriter, r *http.Request) {
 	idStr := strings.TrimPrefix(r.URL.Path, "/api/admin/apps/")
 	id, _ := strconv.ParseInt(idStr, 10, 64)
-	ctx := r.Context()
-	_, err := firebase.Client().Collection("apps").Doc(strconv.FormatInt(id, 10)).Delete(ctx)
+	_, err := firebase.Client().Collection("apps").Doc(strconv.FormatInt(id, 10)).Delete(r.Context())
 	if err != nil {
-		writeErr(w, 500, "Internal server error.")
+		writeErr(w, 500, err.Error())
 		return
 	}
 	w.WriteHeader(204)
 }
 
 func ListSubmissions(w http.ResponseWriter, r *http.Request) {
+	defer func() {
+		if rec := recover(); rec != nil {
+			writeErr(w, 500, fmt.Sprintf("panic: %v", rec))
+		}
+	}()
 	status := r.URL.Query().Get("status")
 	ctx := r.Context()
-	it := firebase.Client().Collection("submissions").Documents(ctx)
-	var rows []map[string]any
-	for {
-		doc, err := it.Next()
-		if err == iterator.Done {
-			break
-		}
-		if err != nil {
-			writeErr(w, 500, "Internal server error.")
-			return
-		}
+	db := firebase.Client()
+	if db == nil {
+		writeErr(w, 503, "Firebase not ready")
+		return
+	}
+	docs, err := db.Collection("submissions").Documents(ctx).GetAll()
+	if err != nil {
+		writeErr(w, 500, err.Error())
+		return
+	}
+	rows := make([]map[string]any, 0)
+	for _, doc := range docs {
 		d := doc.Data()
 		if status != "" && asString(d["status"]) != status {
 			continue
@@ -531,7 +553,7 @@ func SubmitApp(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	id, err := firebase.NextID(ctx, "submissions")
 	if err != nil {
-		writeErr(w, 500, "Internal server error.")
+		writeErr(w, 500, err.Error())
 		return
 	}
 	row := map[string]any{
@@ -550,7 +572,7 @@ func SubmitApp(w http.ResponseWriter, r *http.Request) {
 	}
 	_, err = firebase.Client().Collection("submissions").Doc(strconv.FormatInt(id, 10)).Set(ctx, row)
 	if err != nil {
-		writeErr(w, 500, "Internal server error.")
+		writeErr(w, 500, err.Error())
 		return
 	}
 	writeJSON(w, 201, row)
@@ -568,17 +590,19 @@ func ApproveSubmission(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	d := doc.Data()
-	// ensure category
 	catName := asString(d["categoryName"])
 	if catName == "" {
 		catName = "Other"
 	}
 	catID := int64(0)
-	cit := firebase.Client().Collection("categories").Where("name", "==", catName).Limit(1).Documents(ctx)
-	cdoc, err := cit.Next()
-	if err == nil {
-		catID = asInt(cdoc.Data()["id"])
-	} else {
+	catDocs, _ := firebase.Client().Collection("categories").Documents(ctx).GetAll()
+	for _, cd := range catDocs {
+		if asString(cd.Data()["name"]) == catName {
+			catID = asInt(cd.Data()["id"])
+			break
+		}
+	}
+	if catID == 0 {
 		catID, _ = firebase.NextID(ctx, "categories")
 		_, _ = firebase.Client().Collection("categories").Doc(strconv.FormatInt(catID, 10)).Set(ctx, map[string]any{
 			"id": catID, "name": catName, "icon": "Package",
@@ -601,7 +625,8 @@ func ApproveSubmission(w http.ResponseWriter, r *http.Request) {
 	_, _ = ref.Set(ctx, map[string]any{
 		"status": "approved", "reviewedAt": time.Now().UTC().Format(time.RFC3339),
 	}, firestore.MergeAll)
-	writeJSON(w, 200, map[string]any{"submission": "approved", "app": mapApp(app, loadCatNames(ctx))})
+	catNames, _ := loadCatNames(ctx)
+	writeJSON(w, 200, map[string]any{"submission": "approved", "app": mapApp(app, catNames)})
 }
 
 func RejectSubmission(w http.ResponseWriter, r *http.Request) {
@@ -619,94 +644,24 @@ func RejectSubmission(w http.ResponseWriter, r *http.Request) {
 		"reviewedAt": time.Now().UTC().Format(time.RFC3339),
 	}, firestore.MergeAll)
 	if err != nil {
-		writeErr(w, 500, "Internal server error.")
+		writeErr(w, 500, err.Error())
 		return
 	}
 	writeJSON(w, 200, map[string]any{"ok": true, "status": "rejected"})
 }
-
-// helpers
-func asInt(v any) int64 {
-	switch t := v.(type) {
-	case int64:
-		return t
-	case int:
-		return int64(t)
-	case float64:
-		return int64(t)
-	case json.Number:
-		n, _ := t.Int64()
-		return n
-	default:
-		return 0
-	}
-}
-func asBool(v any) bool {
-	b, _ := v.(bool)
-	return b
-}
-func asString(v any) string {
-	s, _ := v.(string)
-	return s
-}
-func strOr(v any, def string) string {
-	s := asString(v)
-	if s == "" {
-		return def
-	}
-	return s
-}
-func mapApp(d map[string]any, catNames map[int64]string) map[string]any {
-	id := asInt(d["id"])
-	cid := asInt(d["categoryId"])
-	return map[string]any{
-		"id": id, "name": d["name"], "packageName": d["packageName"],
-		"description": d["description"], "categoryId": cid,
-		"categoryName": catNames[cid], "version": d["version"], "size": d["size"],
-		"iconUrl": d["iconUrl"], "screenshotUrls": d["screenshotUrls"],
-		"downloadUrl": d["downloadUrl"], "developerSlug": d["developerSlug"],
-		"developerLogoUrl": d["developerLogoUrl"], "developerDescription": d["developerDescription"],
-		"scanStatus": d["scanStatus"], "scanReport": d["scanReport"],
-		"downloads": asInt(d["downloads"]), "rating": d["rating"], "reviewCount": asInt(d["reviewCount"]),
-		"isFeatured": asBool(d["isFeatured"]), "isActive": d["isActive"] != false,
-		"developer": d["developer"], "createdAt": toISO(d["createdAt"]),
-	}
-}
-func loadCatNames(ctx context.Context) map[int64]string {
-	m := map[int64]string{}
-	if firebase.Client() == nil {
-		return m
-	}
-	it := firebase.Client().Collection("categories").Documents(ctx)
-	for {
-		doc, err := it.Next()
-		if err == iterator.Done {
-			break
-		}
-		if err != nil {
-			break
-		}
-		d := doc.Data()
-		m[asInt(d["id"])] = asString(d["name"])
-	}
-	return m
-}
-
-// --- GitHub APK storage ---
 
 func StorageStatus(w http.ResponseWriter, r *http.Request) {
 	c := storage.NewFromEnv()
 	writeJSON(w, 200, c.Status())
 }
 
-// UploadAPK: multipart form field "file" (apk), optional "name", "tag"
 func UploadAPK(w http.ResponseWriter, r *http.Request) {
 	c := storage.NewFromEnv()
 	if c.Token == "" {
 		writeErr(w, 503, "GitHub storage not configured (GITHUB_STORAGE_TOKEN)")
 		return
 	}
-	if err := r.ParseMultipartForm(512 << 20); err != nil { // 512MB
+	if err := r.ParseMultipartForm(512 << 20); err != nil {
 		writeErr(w, 400, "Invalid multipart form (max 512MB)")
 		return
 	}
@@ -744,11 +699,79 @@ func UploadAPK(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, 201, map[string]any{
-		"ok":         true,
-		"repo":       repo.FullName,
-		"tag":        tag,
-		"asset":      assetName,
-		"size":       size,
-		"downloadUrl": url,
+		"ok": true, "repo": repo.FullName, "tag": tag, "asset": assetName,
+		"size": size, "downloadUrl": url,
 	})
+}
+
+func asInt(v any) int64 {
+	switch t := v.(type) {
+	case int64:
+		return t
+	case int:
+		return int64(t)
+	case float64:
+		return int64(t)
+	case json.Number:
+		n, _ := t.Int64()
+		return n
+	case string:
+		n, _ := strconv.ParseInt(t, 10, 64)
+		return n
+	default:
+		return 0
+	}
+}
+func asBool(v any) bool {
+	b, _ := v.(bool)
+	return b
+}
+func asString(v any) string {
+	s, _ := v.(string)
+	return s
+}
+func strOr(v any, def string) string {
+	s := asString(v)
+	if s == "" {
+		return def
+	}
+	return s
+}
+func mapApp(d map[string]any, catNames map[int64]string) map[string]any {
+	id := asInt(d["id"])
+	cid := asInt(d["categoryId"])
+	return map[string]any{
+		"id": id, "name": d["name"], "packageName": d["packageName"],
+		"description": d["description"], "categoryId": cid,
+		"categoryName": catNames[cid], "version": d["version"], "size": d["size"],
+		"iconUrl": d["iconUrl"], "screenshotUrls": d["screenshotUrls"],
+		"downloadUrl": d["downloadUrl"], "developerSlug": d["developerSlug"],
+		"developerLogoUrl": d["developerLogoUrl"], "developerDescription": d["developerDescription"],
+		"scanStatus": d["scanStatus"], "scanReport": d["scanReport"],
+		"downloads": asInt(d["downloads"]), "rating": d["rating"], "reviewCount": asInt(d["reviewCount"]),
+		"isFeatured": asBool(d["isFeatured"]), "isActive": d["isActive"] != false,
+		"developer": d["developer"], "createdAt": toISO(d["createdAt"]),
+	}
+}
+func loadCatNames(ctx context.Context) (map[int64]string, error) {
+	m := map[int64]string{}
+	db := firebase.Client()
+	if db == nil {
+		return m, fmt.Errorf("no firestore")
+	}
+	docs, err := db.Collection("categories").Documents(ctx).GetAll()
+	if err != nil {
+		return m, err
+	}
+	for _, doc := range docs {
+		d := doc.Data()
+		id := asInt(d["id"])
+		if id == 0 {
+			if n, e := strconv.ParseInt(doc.Ref.ID, 10, 64); e == nil {
+				id = n
+			}
+		}
+		m[id] = asString(d["name"])
+	}
+	return m, nil
 }

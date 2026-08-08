@@ -47,7 +47,7 @@ func GetDeveloper(w http.ResponseWriter, r *http.Request) {
 	d := doc.Data()
 	d["slug"] = slug
 	// attach apps
-	catNames := loadCatNames(ctx)
+	catNames, _ := loadCatNames(ctx)
 	var apps []map[string]any
 	it := firebase.Client().Collection("apps").Documents(ctx)
 	for {

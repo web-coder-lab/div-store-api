@@ -135,7 +135,7 @@ func dumpCollection(ctx context.Context, db *firestore.Client, name string) ([]m
 func (d *DataSync) buildSnapshot(ctx context.Context, db *firestore.Client) ([]byte, map[string]any, error) {
 	collections := []string{
 		"apps", "categories", "reviews", "submissions",
-		"developer_profiles", "settings", "users",
+		"developer_profiles", "settings",
 	}
 	snapshot := map[string]any{
 		"exportedAt": time.Now().UTC().Format(time.RFC3339),
@@ -187,7 +187,7 @@ func (d *DataSync) MaybePush(ctx context.Context, db *firestore.Client, force bo
 	if err := d.putFile("data/snapshot.json", raw, msg); err != nil {
 		return result, err
 	}
-	for _, col := range []string{"apps", "categories", "reviews", "submissions", "developer_profiles", "settings", "users"} {
+	for _, col := range []string{"apps", "categories", "reviews", "submissions", "developer_profiles", "settings"} {
 		part, _ := json.MarshalIndent(snapshot[col], "", "  ")
 		_ = d.putFile("data/"+col+".json", part, msg+" · "+col)
 	}

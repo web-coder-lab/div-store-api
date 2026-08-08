@@ -1,0 +1,4 @@
+div-store
+*.exe
+.env
+firebase-service-account.json

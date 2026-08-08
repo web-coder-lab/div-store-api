@@ -1,0 +1,320 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover"/>
+<meta name="theme-color" content="#050816"/>
+<title>Div Store Admin</title>
+<style>
+:root{
+  --bg:#050816;--surface:#0B1020;--surface2:#11182A;
+  --border:rgba(120,140,255,0.16);
+  --primary:#3EDCFF;--secondary:#8B5CFF;
+  --text:#F2F6FF;--dim:#98A2B3;
+  --ok:#34d399;--bad:#f87171;--warn:#fbbf24;
+  --nav-h:64px;--safe-b:env(safe-area-inset-bottom,0px);
+}
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+html,body{margin:0;height:100%;background:var(--bg);color:var(--text);
+  font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif}
+body{display:flex;flex-direction:column;max-width:480px;margin:0 auto;position:relative}
+.hidden{display:none!important}
+
+/* Login */
+#login{min-height:100%;display:flex;flex-direction:column;justify-content:center;padding:28px 20px}
+.logo{text-align:center;margin-bottom:28px}
+.logo .shield{width:72px;height:72px;margin:0 auto 12px;border-radius:18px;
+  background:linear-gradient(135deg,#0B1020,#11182A);border:1px solid var(--border);
+  display:flex;align-items:center;justify-content:center;font-size:28px;font-weight:800;
+  background-image:linear-gradient(135deg,var(--primary),var(--secondary));
+  -webkit-background-clip:text;background-clip:text;color:transparent;
+  border:1px solid var(--border);filter:drop-shadow(0 0 12px rgba(62,220,255,.25))}
+.logo h1{margin:0;font-size:1.4rem;letter-spacing:.04em}
+.logo p{margin:6px 0 0;color:var(--dim);font-size:.85rem}
+label{display:block;font-size:.72rem;color:var(--dim);margin:14px 0 6px}
+input,textarea,select{width:100%;padding:14px 14px;border-radius:14px;border:1px solid var(--border);
+  background:var(--surface);color:var(--text);font-size:15px;outline:none}
+input:focus,textarea:focus{border-color:var(--primary)}
+button{border:0;border-radius:14px;padding:14px 18px;font-weight:700;font-size:.95rem;cursor:pointer;
+  background:linear-gradient(135deg,var(--primary),var(--secondary));color:#041018}
+button.ghost{background:var(--surface2);color:var(--text);border:1px solid var(--border)}
+button.danger{background:#3b0a0a;color:#fecaca}
+button.sm{padding:8px 12px;font-size:.78rem;border-radius:10px}
+.err{color:var(--bad);font-size:.85rem;margin-top:12px;min-height:1.2em}
+.ok{color:var(--ok);font-size:.85rem}
+
+/* App shell */
+#app{display:none;flex-direction:column;height:100%;min-height:100dvh}
+#app.open{display:flex}
+.top{padding:14px 16px 10px;background:var(--surface);border-bottom:1px solid var(--border);
+  display:flex;align-items:center;justify-content:space-between;gap:10px}
+.top .brand{font-weight:800;font-size:.95rem;background:linear-gradient(90deg,var(--primary),var(--secondary));
+  -webkit-background-clip:text;background-clip:text;color:transparent}
+.top .sub{font-size:.7rem;color:var(--dim)}
+main{flex:1;overflow-y:auto;padding:14px 14px calc(var(--nav-h) + var(--safe-b) + 16px);-webkit-overflow-scrolling:touch}
+
+/* Bottom nav */
+.bnav{position:fixed;left:50%;transform:translateX(-50%);bottom:0;width:100%;max-width:480px;
+  height:calc(var(--nav-h) + var(--safe-b));padding-bottom:var(--safe-b);
+  background:rgba(11,16,32,.94);backdrop-filter:blur(12px);border-top:1px solid var(--border);
+  display:flex;z-index:50}
+.bnav button{flex:1;background:transparent;color:var(--dim);border-radius:0;padding:8px 4px;
+  display:flex;flex-direction:column;align-items:center;gap:2px;font-size:.65rem;font-weight:600}
+.bnav button.active{color:var(--primary)}
+.bnav button span.ic{font-size:1.15rem;line-height:1}
+
+.card{background:var(--surface);border:1px solid var(--border);border-radius:16px;padding:14px;margin-bottom:12px}
+.card h3{margin:0 0 10px;font-size:.9rem}
+.grid{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.stat{background:var(--surface2);border-radius:14px;padding:12px;border:1px solid var(--border)}
+.stat .n{font-size:1.35rem;font-weight:800;color:var(--primary)}
+.stat .l{font-size:.68rem;color:var(--dim);margin-top:2px}
+.row{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+.item{display:flex;gap:12px;padding:12px 0;border-bottom:1px solid var(--border);align-items:center}
+.item:last-child{border-bottom:0}
+.item img{width:48px;height:48px;border-radius:12px;object-fit:cover;background:var(--surface2);border:1px solid var(--border)}
+.item .meta{flex:1;min-width:0}
+.item .title{font-weight:700;font-size:.88rem;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.item .sub{font-size:.72rem;color:var(--dim);margin-top:2px}
+.pill{display:inline-block;padding:2px 8px;border-radius:999px;font-size:.68rem;font-weight:600;
+  background:var(--surface2);border:1px solid var(--border)}
+.pill.ok{color:var(--ok)}.pill.warn{color:var(--warn)}.pill.bad{color:var(--bad)}
+.muted{color:var(--dim);font-size:.8rem}
+.empty{text-align:center;padding:32px 12px;color:var(--dim)}
+</style>
+</head>
+<body>
+
+<div id="login">
+  <div class="logo">
+    <div class="shield">D</div>
+    <h1>DIV STORE</h1>
+    <p>Admin · mobile control</p>
+  </div>
+  <label>Admin API key</label>
+  <input id="apiKey" type="password" placeholder="ADMIN_API_KEY" autocomplete="current-password"/>
+  <label>API base (optional)</label>
+  <input id="apiBase" type="text" placeholder="same origin" value=""/>
+  <button id="loginBtn" style="width:100%;margin-top:20px">Unlock Admin</button>
+  <div class="err" id="loginErr"></div>
+</div>
+
+<div id="app">
+  <div class="top">
+    <div>
+      <div class="brand">DIV STORE</div>
+      <div class="sub" id="topSub">Admin</div>
+    </div>
+    <button class="ghost sm" id="logoutBtn">Logout</button>
+  </div>
+  <main id="content"></main>
+  <nav class="bnav">
+    <button class="active" data-tab="home"><span class="ic">◈</span>Home</button>
+    <button data-tab="apps"><span class="ic">▣</span>Apps</button>
+    <button data-tab="subs"><span class="ic">◉</span>Inbox</button>
+    <button data-tab="cats"><span class="ic">▦</span>Cats</button>
+    <button data-tab="more"><span class="ic">☰</span>More</button>
+  </nav>
+</div>
+
+<script>
+const $ = id => document.getElementById(id);
+let tab = 'home';
+let KEY = sessionStorage.getItem('ds_key') || '';
+let BASE = sessionStorage.getItem('ds_base') || '';
+
+function apiUrl(path) {
+  const b = (BASE || '').replace(/\/$/, '');
+  return b + path;
+}
+
+async function api(path, opts = {}) {
+  const headers = Object.assign({'Content-Type':'application/json'}, opts.headers||{});
+  if (KEY) headers['Authorization'] = 'Bearer ' + KEY;
+  const r = await fetch(apiUrl(path), {
+    method: opts.method || 'GET',
+    headers,
+    body: opts.body !== undefined ? JSON.stringify(opts.body) : undefined,
+  });
+  if (r.status === 204) return null;
+  const t = await r.text();
+  let data = null;
+  try { data = t ? JSON.parse(t) : null; } catch { throw new Error(t || r.statusText); }
+  if (!r.ok) throw new Error(data?.error || t || ('HTTP '+r.status));
+  return data;
+}
+
+function showApp() {
+  $('login').classList.add('hidden');
+  $('app').classList.add('open');
+  render();
+}
+function showLogin() {
+  $('app').classList.remove('open');
+  $('login').classList.remove('hidden');
+}
+
+async function doLogin() {
+  $('loginErr').textContent = '';
+  KEY = $('apiKey').value.trim();
+  BASE = $('apiBase').value.trim().replace(/\/$/, '');
+  try {
+    await api('/api/admin/stats');
+    sessionStorage.setItem('ds_key', KEY);
+    sessionStorage.setItem('ds_base', BASE);
+    showApp();
+  } catch (e) {
+    $('loginErr').textContent = e.message || 'Login failed';
+  }
+}
+
+$('loginBtn').onclick = doLogin;
+$('apiKey').addEventListener('keydown', e => { if (e.key==='Enter') doLogin(); });
+$('logoutBtn').onclick = () => {
+  KEY=''; BASE='';
+  sessionStorage.removeItem('ds_key'); sessionStorage.removeItem('ds_base');
+  showLogin();
+};
+
+document.querySelectorAll('.bnav button').forEach(b => {
+  b.onclick = () => {
+    document.querySelectorAll('.bnav button').forEach(x => x.classList.remove('active'));
+    b.classList.add('active');
+    tab = b.dataset.tab;
+    render();
+  };
+});
+
+function esc(s){return String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));}
+
+async function render() {
+  const el = $('content');
+  el.innerHTML = '<div class="empty">Loading…</div>';
+  try {
+    if (tab === 'home') {
+      const s = await api('/api/admin/stats');
+      const h = await api('/api/health');
+      $('topSub').textContent = h.firebase?.ok ? 'Firebase OK' : 'Firebase issue';
+      el.innerHTML = `
+        <div class="card"><h3>Dashboard</h3>
+          <div class="grid">
+            <div class="stat"><div class="n">${s.apps||0}</div><div class="l">Apps</div></div>
+            <div class="stat"><div class="n">${s.pendingSubmissions||0}</div><div class="l">Pending</div></div>
+            <div class="stat"><div class="n">${s.categories||0}</div><div class="l">Categories</div></div>
+            <div class="stat"><div class="n">${s.totalDownloads||0}</div><div class="l">Downloads</div></div>
+          </div>
+          <p class="muted" style="margin-top:12px">Reviews ${s.reviews||0} · Featured ${s.featuredApps||0}</p>
+        </div>
+        <div class="card"><h3>System</h3>
+          <p class="muted">${esc(h.name)} · ${esc(h.version)} · ${esc(h.engine||'')}</p>
+          <p class="muted">Project: ${esc(h.firebase?.projectId||'—')}</p>
+        </div>`;
+    } else if (tab === 'apps') {
+      const apps = await api('/api/admin/apps');
+      if (!apps?.length) { el.innerHTML = '<div class="empty">No apps yet</div>'; return; }
+      el.innerHTML = `<div class="card"><h3>All apps (${apps.length})</h3>` +
+        apps.map(a => `
+          <div class="item">
+            <img src="${esc(a.iconUrl||'')}" alt="" onerror="this.style.opacity=.3"/>
+            <div class="meta">
+              <div class="title">${esc(a.name)}</div>
+              <div class="sub">${esc(a.packageName)} · ${esc(a.categoryName||'')}</div>
+              <div class="row" style="margin-top:6px">
+                <span class="pill">${a.downloads||0} dl</span>
+                <span class="pill ${a.isFeatured?'ok':''}">${a.isFeatured?'featured':'—'}</span>
+                <button class="ghost sm" onclick="toggleFeatured(${a.id},${!a.isFeatured})">Feature</button>
+                <button class="danger sm" onclick="delApp(${a.id})">Del</button>
+              </div>
+            </div>
+          </div>`).join('') + '</div>';
+    } else if (tab === 'subs') {
+      const subs = await api('/api/admin/submissions');
+      const pending = (subs||[]).filter(s => s.status==='pending');
+      const rest = (subs||[]).filter(s => s.status!=='pending');
+      el.innerHTML = `<div class="card"><h3>Pending (${pending.length})</h3>` +
+        (pending.length? pending.map(s => `
+          <div class="item">
+            <img src="${esc(s.iconUrl||'')}" alt=""/>
+            <div class="meta">
+              <div class="title">${esc(s.appName)}</div>
+              <div class="sub">${esc(s.developerName)} · ${esc(s.packageName)}</div>
+              <div class="row" style="margin-top:6px">
+                <button class="sm" onclick="approveSub(${s.id})">Approve</button>
+                <button class="danger sm" onclick="rejectSub(${s.id})">Reject</button>
+              </div>
+            </div>
+          </div>`).join('') : '<div class="empty">Inbox clear</div>') +
+        `</div><div class="card"><h3>History</h3>` +
+        (rest.length? rest.slice(0,20).map(s => `
+          <div class="item"><div class="meta">
+            <div class="title">${esc(s.appName)}</div>
+            <div class="sub"><span class="pill">${esc(s.status)}</span> ${esc(s.packageName)}</div>
+          </div></div>`).join('') : '<div class="muted">—</div>') + '</div>';
+    } else if (tab === 'cats') {
+      const cats = await api('/api/categories');
+      el.innerHTML = `<div class="card"><h3>Categories</h3>
+        <div class="row" style="margin-bottom:12px">
+          <input id="newCat" placeholder="New category name" style="flex:1"/>
+          <button class="sm" id="addCatBtn">Add</button>
+        </div>` +
+        (cats||[]).map(c => `
+          <div class="item"><div class="meta">
+            <div class="title">${esc(c.name)}</div>
+            <div class="sub">${c.appCount||0} apps · ${esc(c.icon||'')}</div>
+          </div>
+          <button class="danger sm" onclick="delCat(${c.id})">Del</button>
+          </div>`).join('') + '</div>';
+      $('addCatBtn').onclick = async () => {
+        const name = $('newCat').value.trim();
+        if (!name) return;
+        await api('/api/categories', {method:'POST', body:{name, icon:'Package'}});
+        render();
+      };
+    } else if (tab === 'more') {
+      el.innerHTML = `<div class="card"><h3>Session</h3>
+        <p class="muted">Base: ${esc(BASE||'(same origin)')}</p>
+        <button class="ghost" style="width:100%;margin-top:10px" onclick="location.reload()">Refresh</button>
+        <button class="danger" style="width:100%;margin-top:8px" id="out2">Logout</button>
+      </div>
+      <div class="card"><h3>Div Store</h3>
+        <p class="muted">Go API + Firebase · Admin mobile shell</p>
+      </div>`;
+      $('out2').onclick = () => $('logoutBtn').click();
+    }
+  } catch (e) {
+    el.innerHTML = `<div class="card err">${esc(e.message)}</div>`;
+    if (/unauth/i.test(e.message)) showLogin();
+  }
+}
+
+window.toggleFeatured = async (id, on) => {
+  try { await api('/api/admin/apps/'+id, {method:'PATCH', body:{isFeatured: !!on}}); render(); }
+  catch(e){ alert(e.message); }
+};
+window.delApp = async (id) => {
+  if (!confirm('Delete app '+id+'?')) return;
+  try { await api('/api/admin/apps/'+id, {method:'DELETE'}); render(); }
+  catch(e){ alert(e.message); }
+};
+window.approveSub = async (id) => {
+  try { await api('/api/admin/submissions/'+id+'/approve', {method:'POST', body:{}}); render(); }
+  catch(e){ alert(e.message); }
+};
+window.rejectSub = async (id) => {
+  try { await api('/api/admin/submissions/'+id+'/reject', {method:'POST', body:{note:'rejected'}}); render(); }
+  catch(e){ alert(e.message); }
+};
+window.delCat = async (id) => {
+  if (!confirm('Delete category?')) return;
+  try { await api('/api/categories/'+id, {method:'DELETE'}); render(); }
+  catch(e){ alert(e.message); }
+};
+
+if (KEY) {
+  api('/api/admin/stats').then(showApp).catch(showLogin);
+} else {
+  showLogin();
+}
+</script>
+</body>
+</html>

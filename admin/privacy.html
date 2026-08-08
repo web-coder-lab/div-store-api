@@ -11,7 +11,6 @@ h1{font-size:1.6rem;margin:0 0 8px;background:linear-gradient(90deg,#3EDCFF,#8B5
 .meta{color:#98A2B3;font-size:.9rem;margin-bottom:28px}
 h2{font-size:1.1rem;margin:28px 0 10px;color:#3EDCFF}
 p,li{color:#c8d0e0;font-size:.95rem}
-ul{padding-left:1.2rem}
 .card{background:#0B1020;border:1px solid rgba(120,140,255,.16);border-radius:14px;padding:16px;margin:16px 0}
 </style>
 </head>
@@ -19,50 +18,49 @@ ul{padding-left:1.2rem}
 <div class="wrap">
 <h1>Privacy Policy</h1>
 <p class="meta">Div Store · Last updated: August 2026</p>
-<p>This Privacy Policy explains how Div Store handles information when you use the application, administrative tools, and related interfaces. We aim to process only what is needed to run the catalog, handle developer submissions, and keep the platform reasonably secure.</p>
-<h2>1. Scope</h2>
-<p>This policy covers information processed through official Div Store clients and APIs. It does not cover third-party applications you install from the catalog; those products follow their own policies.</p>
-<h2>2. Information we process</h2>
-<p><strong>Catalog data.</strong> Application names, package identifiers, descriptions, versions, icons, screenshots, sizes, download counters, ratings summaries, and similar metadata required to display and manage listings.</p>
-<p><strong>Developer and company submissions.</strong> Contact emails, developer or company names, optional websites, submission notes, and package metadata. Binary packages are stored so approved titles can be delivered to users.</p>
-<p><strong>Reviews.</strong> Names and text that users choose to publish, star ratings, and timestamps.</p>
-<p><strong>Technical logs.</strong> IP addresses, coarse client indicators, timestamps, and request paths may be processed to enforce rate limits, investigate abuse, and maintain availability. These logs support operations rather than advertising profiles.</p>
-<p><strong>Administrative access.</strong> Operators authenticate with administrative credentials used only to authorize privileged catalog actions.</p>
-<h2>3. How we use information</h2>
-<ul>
-<li>To operate the catalog and download flows</li>
-<li>To review, approve, reject, or remove submissions</li>
-<li>To compute aggregate statistics such as downloads and ratings</li>
-<li>To secure the Service and respond to misuse</li>
-<li>To contact you about submissions when you provide an address</li>
-<li>To meet legal obligations when required</li>
-</ul>
-<h2>4. Where information is stored</h2>
-<p>Durable catalog and submission records are kept as structured data in private project repositories used as the system of record. Application packages are stored as versioned release artifacts. Application servers process requests and persist durable state in those repositories rather than keeping a separate long-term database on the server disk.</p>
-<p>Repository history may retain earlier versions of files. Removing a listing from the live catalog may not erase every historical copy immediately. Contact support if you need help with a deletion request.</p>
-<h2>5. Sharing</h2>
-<p>We do not sell personal information. Information is shared only with infrastructure providers that host repositories or run the API, when required by law, or to protect users and the Service. Public catalog fields are visible to people using the Service.</p>
-<h2>6. Downloads and third-party apps</h2>
-<p>When you download an application, the package is retrieved from artifact storage linked to that listing. After installation, the third-party app may collect data under its own policy. Div Store is not responsible for those practices.</p>
-<h2>7. Local storage in admin tools</h2>
-<p>The administrative interface may keep a session token in browser storage so operators stay signed in on that device. Core store browsing is not built around third-party advertising cookies.</p>
-<h2>8. Retention</h2>
-<p>Catalog and submission records are retained while needed to operate the Service and for security or dispute purposes. Technical logs are kept for shorter operational periods unless investigation or law requires longer. You may request removal of a review you posted or a listing you control, subject to verification and technical limits.</p>
-<h2>9. Security</h2>
-<p>Privileged actions require administrative authentication. HTTPS is used where the host provides it. Rate limits and separation between public reads and privileged writes are applied. No system is perfectly secure; protect your devices and credentials.</p>
-<h2>10. International processing</h2>
-<p>Infrastructure may operate in more than one country. Accessing the Service may involve processing in regions where hosts are located. Where required, appropriate legal mechanisms are used for cross-border transfers.</p>
-<h2>11. Children</h2>
-<p>The Service is not directed to children under thirteen, or under the minimum age required where you live. We do not knowingly collect personal information from children. Contact us if you believe a child has provided personal information.</p>
-<h2>12. Your choices</h2>
-<p>Depending on where you live, you may have rights to access, correct, or delete certain information, or to object to some processing. Send requests through the official support channel with enough detail to locate your records. Verification may be required. Some rights are limited where retention is necessary for security, law, or operation of a public listing you published.</p>
-<h2>13. Ranking signals</h2>
-<p>Download counts and similar ranking inputs may be calculated automatically from Service activity. We do not use fully automated systems to make legal or similarly significant decisions about individuals without human involvement where such involvement is required.</p>
-<h2>14. Changes</h2>
-<p>This policy may be updated to reflect product or legal changes. The date at the top will be revised when that happens. Continued use after an update means you acknowledge the revised policy.</p>
-<h2>15. Contact</h2>
-<div class="card"><p>Privacy questions and requests can be sent through the support contact published in the application or on the official project page for Div Store.</p></div>
-<p>If you do not agree with this policy, discontinue use of the Service. Platform rules of use are described in the Terms of Service.</p>
+
+<p>This Privacy Policy describes how Div Store (“we”, “us”, or “the operator”) collects, uses, stores, and shares information when you use the Div Store application, related administrative interfaces, and APIs (together, the “Service”). We design the Service to process information needed to run an application catalog, handle publisher submissions, deliver downloads, and protect the platform against abuse.</p>
+
+<p>This policy applies to data processed by Div Store itself. It does not apply to third-party applications that you choose to install after downloading them from the catalog. Those applications may collect information under their own policies, which you should read before installation and use.</p>
+
+<p>We process catalog and listing information such as application names, package identifiers, short and long descriptions, version labels, declared sizes, icons, screenshots, category assignments, feature flags, scan status fields, download counters, aggregate ratings, and similar metadata required to display and manage the store.</p>
+
+<p>When developers or companies submit software, we process contact email addresses, developer or organization names, optional website addresses, descriptive text, package names, version information, and related submission fields. Binary application packages may be uploaded and retained so that approved titles can be delivered to end users through download links.</p>
+
+<p>If you post a review, we process the display name you provide, the rating value, the review text, and the time of submission. Reviews are intended to be visible to other users of the Service as part of the public catalog experience.</p>
+
+<p>We may process technical information such as Internet Protocol addresses, approximate client or user-agent strings, timestamps, requested paths, and similar signals generated by use of the API or administrative tools. This information supports rate limiting, fraud and abuse investigation, debugging, and service reliability. It is not used to build advertising profiles for third-party ad networks within the core Service described here.</p>
+
+<p>Administrative operators authenticate with credentials that authorize privileged actions such as approving submissions, managing categories, or uploading packages. Those credentials and associated session tokens are processed only to secure administrative access.</p>
+
+<p>We use information to operate and display the catalog; to receive, review, approve, reject, or remove submissions; to generate aggregate statistics; to deliver download locations for approved packages; to secure the Service; to communicate about submissions when contact details are provided; and to comply with applicable law.</p>
+
+<p>Div Store is architected so that durable catalog records are stored as structured data files in private project repositories that serve as the system of record, rather than remaining only on ephemeral application server disks. Application package binaries are stored as versioned release artifacts. Servers handle requests and persist durable state into those repositories. As a result, operational data may appear in repository history according to the retention and access controls of that hosting environment.</p>
+
+<p>Because version history can preserve earlier file states, removing an item from the live catalog does not always erase every historical copy at the same moment. If you need help with a deletion or correction request, contact support through the official channel and include enough detail to locate the relevant records.</p>
+
+<p>We do not sell personal information. We share information with infrastructure providers that host repositories, run application servers, or deliver artifacts, only as needed to operate the Service; when required by law or valid legal process; or when necessary to protect the rights, safety, and integrity of users and the platform. Information that is part of a public listing is visible to people who use the Service.</p>
+
+<p>When you request a download, the Service returns a location for the package artifact associated with that listing. After you install a third-party application, that application’s developer becomes responsible for any further data collection under their own terms and policies.</p>
+
+<p>The administrative web interface may store a session token in browser storage so that an operator remains signed in on that device. The consumer-facing catalog experience described in this policy is not dependent on third-party advertising cookies.</p>
+
+<p>We retain catalog and submission records for as long as needed to operate the Service and for legitimate security, auditing, and dispute purposes. Technical logs are generally kept for shorter operational periods unless a longer period is required for investigation or legal compliance. You may request removal of a review you authored or a developer listing you control, subject to identity verification and the technical limits of repository-based storage.</p>
+
+<p>We implement administrative authentication for privileged routes, HTTPS where the hosting environment provides it, request rate limiting, and separation between public read operations and privileged write operations. No method of electronic storage or transmission is completely secure. You should protect devices and credentials under your control.</p>
+
+<p>Service infrastructure may be located in more than one country. If you access the Service from another region, information may be processed in places where our hosts operate. Where law requires safeguards for cross-border transfers, we rely on mechanisms available under applicable frameworks.</p>
+
+<p>The Service is not directed to children under the age of thirteen, or under a higher age threshold required by your jurisdiction. We do not knowingly collect personal information from children. If you believe a child has provided personal information to us, contact us so that we can take appropriate steps.</p>
+
+<p>Depending on your location, you may have rights to request access to, correction of, or deletion of certain personal information, or to object to particular processing activities. To make a request, use the support contact published in the application or on the official project page, and provide information that helps us locate your records. We may need to verify your identity. Some requests may be limited where we must retain information for security, legal compliance, or the ongoing operation of a public listing you chose to publish.</p>
+
+<p>Automated systems may calculate download counts and similar ranking inputs from activity on the Service. We do not use fully automated processing to make legal or similarly significant decisions about individuals without human involvement where such involvement is required by law.</p>
+
+<p>We may update this Privacy Policy from time to time. When we do, we will revise the “Last updated” date. Continued use of the Service after an update means you acknowledge the revised policy, except where additional consent is required by law.</p>
+
+<p>For privacy questions or requests, contact the Div Store operator through the support channel published in the application or on the official project presence for this Service. For rules governing use of the platform, please also read the Terms of Service.</p>
+
 <p class="meta">© Div Store. All rights reserved.</p>
 </div>
 </body>

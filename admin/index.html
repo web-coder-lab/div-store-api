@@ -24,22 +24,21 @@ button.g{background:var(--s2);color:var(--t);border:1px solid var(--bd)}
 button.d{background:#3b1212;color:#fecaca}
 button.sm{padding:7px 10px;font-size:12px;border-radius:8px}
 label{font-size:11px;color:var(--d);display:block;margin-top:12px}
-.err{color:var(--bad);font-size:13px;margin-top:10px}
-
-#login{padding:40px 20px;min-height:100dvh;display:flex;flex-direction:column;justify-content:center}
-.brand{text-align:center;margin-bottom:28px}
+.err{color:var(--bad);font-size:13px;margin-top:10px;white-space:pre-wrap}
+.ok{color:var(--ok);font-size:13px;margin-top:8px}
+#login{padding:36px 20px;min-height:100dvh;display:flex;flex-direction:column;justify-content:center}
+.brand{text-align:center;margin-bottom:24px}
 .brand .ic{width:64px;height:64px;margin:0 auto 10px;border-radius:16px;border:1px solid var(--bd);
   display:grid;place-items:center;font-size:26px;font-weight:900;
   background:linear-gradient(135deg,var(--p),var(--sec));-webkit-background-clip:text;color:transparent}
 .brand h1{font-size:22px;letter-spacing:.06em}
 .brand p{color:var(--d);font-size:13px;margin-top:4px}
-
 #app{display:none;flex-direction:column;min-height:100dvh}
 #app.on{display:flex}
 .head{padding:12px 16px;background:var(--s);border-bottom:1px solid var(--bd);
-  display:flex;justify-content:space-between;align-items:center}
+  display:flex;justify-content:space-between;align-items:center;gap:8px}
 .head b{background:linear-gradient(90deg,var(--p),var(--sec));-webkit-background-clip:text;color:transparent}
-main{flex:1;overflow:auto;padding:12px 12px calc(var(--nav) + var(--safe) + 12px)}
+main{flex:1;overflow:auto;padding:12px 12px calc(var(--nav) + var(--safe) + 14px)}
 .nav{position:fixed;left:50%;transform:translateX(-50%);bottom:0;width:100%;max-width:430px;
   height:calc(var(--nav) + var(--safe));padding-bottom:var(--safe);
   background:rgba(11,16,32,.96);border-top:1px solid var(--bd);display:flex;z-index:20}
@@ -47,9 +46,8 @@ main{flex:1;overflow:auto;padding:12px 12px calc(var(--nav) + var(--safe) + 12px
   display:flex;flex-direction:column;align-items:center;gap:2px}
 .nav button.on{color:var(--p)}
 .nav .i{font-size:16px}
-
 .card{background:var(--s);border:1px solid var(--bd);border-radius:14px;padding:12px;margin-bottom:10px}
-.card h3{font-size:13px;margin-bottom:10px;color:var(--d);font-weight:600;text-transform:uppercase;letter-spacing:.04em}
+.card h3{font-size:12px;margin-bottom:10px;color:var(--d);font-weight:600;text-transform:uppercase;letter-spacing:.04em}
 .g2{display:grid;grid-template-columns:1fr 1fr;gap:8px}
 .st{background:var(--s2);border:1px solid var(--bd);border-radius:12px;padding:12px}
 .st .n{font-size:22px;font-weight:800;color:var(--p)}
@@ -63,22 +61,32 @@ main{flex:1;overflow:auto;padding:12px 12px calc(var(--nav) + var(--safe) + 12px
 .item .s{font-size:11px;color:var(--d);margin-top:2px}
 .pill{font-size:10px;padding:2px 7px;border-radius:99px;border:1px solid var(--bd);color:var(--d)}
 .muted{color:var(--d);font-size:12px}
-.empty{text-align:center;padding:40px 12px;color:var(--d);font-size:13px}
+.empty{text-align:center;padding:36px 12px;color:var(--d);font-size:13px}
+a{color:var(--p)}
+.warn{background:#1a1520;border:1px solid #5b3a1a;color:#fbbf24;padding:10px 12px;border-radius:12px;font-size:12px;margin-bottom:10px}
 </style>
 </head>
 <body>
 <div id="login">
   <div class="brand"><div class="ic">D</div><h1>DIV STORE</h1><p>Admin panel</p></div>
   <label>Admin API key</label>
-  <input id="key" type="password" placeholder="ADMIN_API_KEY"/>
-  <label>API base (empty = same server)</label>
-  <input id="base" placeholder="https://your-api.onrender.com"/>
+  <input id="key" type="password" placeholder="ADMIN_API_KEY" autocomplete="off"/>
+  <label>API base (blank = this server)</label>
+  <input id="base" placeholder="https://div-store-api.onrender.com"/>
   <button id="go" style="width:100%;margin-top:18px">Login</button>
   <div class="err" id="err"></div>
+  <p class="muted" style="margin-top:16px;text-align:center">
+    <a href="/terms">Terms</a> · <a href="/privacy">Privacy</a>
+  </p>
 </div>
 
 <div id="app">
-  <div class="head"><b>DIV STORE</b><button class="g sm" id="out">Out</button></div>
+  <div class="head"><b>DIV STORE</b>
+    <div class="row">
+      <button class="g sm" id="refresh">↻</button>
+      <button class="g sm" id="out">Out</button>
+    </div>
+  </div>
   <main id="c"></main>
   <nav class="nav">
     <button class="on" data-t="home"><span class="i">◈</span>Home</button>
@@ -93,12 +101,16 @@ const $=id=>document.getElementById(id);
 let T='home', KEY=sessionStorage.getItem('k')||'', BASE=sessionStorage.getItem('b')||'';
 const url=p=>(BASE||'').replace(/\/$/,'')+p;
 async function api(p,o={}){
-  const h={'Content-Type':'application/json'};
+  const h={};
+  if(o.body!==undefined && !(o.body instanceof FormData)) h['Content-Type']='application/json';
   if(KEY) h.Authorization='Bearer '+KEY;
-  const r=await fetch(url(p),{method:o.method||'GET',headers:h,body:o.body!=null?JSON.stringify(o.body):undefined});
+  const r=await fetch(url(p),{
+    method:o.method||'GET', headers:h,
+    body: o.body===undefined?undefined:(o.body instanceof FormData?o.body:JSON.stringify(o.body))
+  });
   if(r.status===204) return null;
   const t=await r.text(); let d=null; try{d=t?JSON.parse(t):null}catch{throw new Error(t||r.statusText)}
-  if(!r.ok) throw new Error(d?.error||t||r.status);
+  if(!r.ok) throw new Error(d?.error||t||('HTTP '+r.status));
   return d;
 }
 const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;' }[c]));
@@ -106,34 +118,54 @@ function showApp(){$('login').classList.add('hidden');$('app').classList.add('on
 function showLogin(){$('app').classList.remove('on');$('login').classList.remove('hidden')}
 $('go').onclick=async()=>{
   $('err').textContent=''; KEY=$('key').value.trim(); BASE=$('base').value.trim();
-  try{await api('/api/admin/stats'); sessionStorage.setItem('k',KEY); sessionStorage.setItem('b',BASE); showApp()}
-  catch(e){$('err').textContent=e.message}
+  try{
+    await api('/api/admin/stats');
+    sessionStorage.setItem('k',KEY); sessionStorage.setItem('b',BASE); showApp();
+  }catch(e){$('err').textContent=e.message}
 };
 $('out').onclick=()=>{KEY='';BASE='';sessionStorage.clear();showLogin()};
+$('refresh').onclick=()=>draw();
 document.querySelectorAll('.nav button').forEach(b=>b.onclick=()=>{
   document.querySelectorAll('.nav button').forEach(x=>x.classList.remove('on'));
   b.classList.add('on'); T=b.dataset.t; draw();
 });
+
 async function draw(){
-  const el=$('c'); el.innerHTML='<div class="empty">…</div>';
+  const el=$('c'); el.innerHTML='<div class="empty">Loading…</div>';
   try{
     if(T==='home'){
-      const s=await api('/api/admin/stats'); const h=await api('/api/health');
-      el.innerHTML=`<div class="card"><h3>Dashboard</h3><div class="g2">
-        <div class="st"><div class="n">${s.apps||0}</div><div class="l">Apps</div></div>
-        <div class="st"><div class="n">${s.pendingSubmissions||0}</div><div class="l">Pending</div></div>
-        <div class="st"><div class="n">${s.categories||0}</div><div class="l">Categories</div></div>
-        <div class="st"><div class="n">${s.totalDownloads||0}</div><div class="l">Downloads</div></div>
-      </div></div>
-      <div class="card"><h3>System</h3>
-        <p class="muted">${esc(h.name)} ${esc(h.version)}</p>
-        <p class="muted">Firebase: ${h.firebase?.ok?'OK':'FAIL'} · ${esc(h.firebase?.projectId||'')}</p>
-        <p class="muted">APK storage: ${h.storage?.enabled?'ON':'OFF'} (${esc(h.storage?.owner||'')})</p>
-      </div>`;
+      const s=await api('/api/admin/stats');
+      let h={}, warn='';
+      try{h=await api('/api/health')}catch(e){warn=e.message}
+      const tok=h.repos?.tokenSet;
+      el.innerHTML=`
+        ${tok===false?'<div class="warn">GITHUB_STORAGE_TOKEN Render pe set nahi. Database/APK kaam nahi karenge jab tak token na lage.</div>':''}
+        <div class="card"><h3>Dashboard</h3><div class="g2">
+          <div class="st"><div class="n">${s.apps||0}</div><div class="l">Apps</div></div>
+          <div class="st"><div class="n">${s.pendingSubmissions||0}</div><div class="l">Pending</div></div>
+          <div class="st"><div class="n">${s.categories||0}</div><div class="l">Categories</div></div>
+          <div class="st"><div class="n">${s.totalDownloads||0}</div><div class="l">Downloads</div></div>
+        </div></div>
+        <div class="card"><h3>System</h3>
+          <p class="muted">${esc(h.name||'')} ${esc(h.version||'')}</p>
+          <p class="muted">DB: GitHub · ${esc(h.database?.status?.repo||'—')} · token ${tok?'ON':'OFF'}</p>
+          <p class="muted">APK: ${esc((h.repos?.apk?.repos||[]).join(', ')||'—')}</p>
+          ${warn?`<p class="err">${esc(warn)}</p>`:''}
+        </div>`;
     } else if(T==='apps'){
       const apps=await api('/api/admin/apps')||[];
-      el.innerHTML=`<div class="card"><h3>Apps (${apps.length})</h3>`+
-        (apps.length?apps.map(a=>`<div class="item">
+      el.innerHTML=`<div class="card"><h3>Apps (${apps.length})</h3>
+        <button class="sm" id="newApp" style="margin-bottom:8px">+ New app</button>
+        <div id="newAppForm" class="hidden">
+          <label>Name</label><input id="a_name"/>
+          <label>Package</label><input id="a_pkg" placeholder="com.example.app"/>
+          <label>Description</label><textarea id="a_desc" rows="3"></textarea>
+          <label>Icon URL</label><input id="a_icon"/>
+          <label>Download URL (GitHub Release)</label><input id="a_dl"/>
+          <label>Category ID</label><input id="a_cat" type="number" value="1"/>
+          <button class="sm" id="a_save" style="margin-top:10px;width:100%">Create</button>
+        </div>
+        `+(apps.length?apps.map(a=>`<div class="item">
           <img src="${esc(a.iconUrl||'')}" onerror="this.style.opacity=.2"/>
           <div class="m"><div class="t">${esc(a.name)}</div>
           <div class="s">${esc(a.packageName)}</div>
@@ -141,44 +173,76 @@ async function draw(){
             <span class="pill">${a.downloads||0} dl</span>
             <button class="g sm" onclick="feat(${a.id},${!a.isFeatured})">${a.isFeatured?'Unfeature':'Feature'}</button>
             <button class="d sm" onclick="delA(${a.id})">Del</button>
-          </div></div></div>`).join(''):'<div class="empty">No apps</div>')+'</div>';
+          </div></div></div>`).join(''):'<div class="empty">No apps yet</div>')+'</div>';
+      $('newApp').onclick=()=>$('newAppForm').classList.toggle('hidden');
+      $('a_save').onclick=async()=>{
+        try{
+          await api('/api/admin/apps',{method:'POST',body:{
+            name:$('a_name').value.trim(), packageName:$('a_pkg').value.trim(),
+            description:$('a_desc').value.trim(), iconUrl:$('a_icon').value.trim(),
+            downloadUrl:$('a_dl').value.trim(), categoryId:Number($('a_cat').value)||1
+          }}); draw();
+        }catch(e){alert(e.message)}
+      };
     } else if(T==='inbox'){
       const all=await api('/api/admin/submissions')||[];
       const p=all.filter(x=>x.status==='pending');
       el.innerHTML=`<div class="card"><h3>Pending (${p.length})</h3>`+
         (p.length?p.map(s=>`<div class="item">
-          <img src="${esc(s.iconUrl||'')}"/>
+          <img src="${esc(s.iconUrl||'')}" onerror="this.style.opacity=.2"/>
           <div class="m"><div class="t">${esc(s.appName)}</div>
           <div class="s">${esc(s.developerName)} · ${esc(s.packageName)}</div>
           <div class="row" style="margin-top:6px">
             <button class="sm" onclick="okS(${s.id})">Approve</button>
             <button class="d sm" onclick="noS(${s.id})">Reject</button>
-          </div></div></div>`).join(''):'<div class="empty">Empty</div>')+'</div>';
+          </div></div></div>`).join(''):'<div class="empty">Inbox empty</div>')+'</div>';
     } else if(T==='cats'){
       const cats=await api('/api/categories')||[];
-      el.innerHTML=`<div class="card"><h3>Categories</h3>
+      el.innerHTML=`<div class="card"><h3>Categories (${cats.length})</h3>
         <div class="row"><input id="cn" placeholder="Name" style="flex:1;margin:0"/><button class="sm" id="ca">Add</button></div>
-        <div style="margin-top:10px">`+cats.map(c=>`<div class="item"><div class="m">
-          <div class="t">${esc(c.name)}</div><div class="s">${c.appCount||0} apps</div></div>
-          <button class="d sm" onclick="delC(${c.id})">Del</button></div>`).join('')+`</div></div>`;
-      $('ca').onclick=async()=>{const n=$('cn').value.trim(); if(!n)return;
-        await api('/api/categories',{method:'POST',body:{name:n,icon:'Package'}}); draw();};
+        <div style="margin-top:10px">`+
+        (cats.length?cats.map(c=>`<div class="item"><div class="m">
+          <div class="t">${esc(c.name)}</div><div class="s">${c.appCount||0} apps · id ${c.id}</div></div>
+          <button class="d sm" onclick="delC(${c.id})">Del</button></div>`).join(''):'<div class="empty">No categories</div>')+
+        `</div></div>`;
+      $('ca').onclick=async()=>{
+        const n=$('cn').value.trim(); if(!n)return;
+        try{await api('/api/categories',{method:'POST',body:{name:n,icon:'Package'}});draw()}
+        catch(e){alert(e.message)}
+      };
     } else if(T==='more'){
       let st={}; try{st=await api('/api/admin/storage')}catch(e){st={error:e.message}}
-      const repos=(st.repos||[]).map(r=>`<div class="item"><div class="m">
-        <div class="t">${esc(r.fullName||r.name)}</div>
-        <div class="s">${((r.bytesUsed||0)/1e9).toFixed(2)} / 3 GB</div></div></div>`).join('')||'<p class="muted">No APK repos yet</p>';
-      el.innerHTML=`<div class="card"><h3>APK storage</h3><p class="muted">${esc(st.owner||st.error||'—')}</p>${repos}</div>
-        <div class="card"><h3>Session</h3><p class="muted">${esc(BASE||'same origin')}</p>
-        <button class="g" style="width:100%;margin-top:8px" onclick="location.reload()">Reload</button></div>`;
+      const db=st.database||{}; const apk=st.apk||{};
+      el.innerHTML=`
+        <div class="card"><h3>Database (GitHub)</h3>
+          <p class="muted">${esc(db.owner||'')}/${esc(db.repo||'')}</p>
+          <p class="muted">enabled: ${db.enabled?'yes':'no'}</p>
+          ${st.error?`<p class="err">${esc(st.error)}</p>`:''}
+          <button class="g sm" id="forceSync" style="margin-top:8px">Refresh status</button>
+        </div>
+        <div class="card"><h3>APK storage</h3>
+          <p class="muted">${esc((apk.repos||[]).join(', ')|| apk.error || '—')}</p>
+          <p class="muted">enabled: ${apk.enabled?'yes':'no'}</p>
+        </div>
+        <div class="card"><h3>Legal</h3>
+          <p class="muted"><a href="/terms" target="_blank">Terms</a> · <a href="/privacy" target="_blank">Privacy</a></p>
+        </div>
+        <div class="card"><h3>Session</h3>
+          <p class="muted">${esc(BASE||'same origin')}</p>
+        </div>`;
+      $('forceSync').onclick=()=>draw();
     }
-  }catch(e){el.innerHTML=`<div class="card err">${esc(e.message)}</div>`; if(/unauth/i.test(e.message)) showLogin()}
+  }catch(e){
+    el.innerHTML=`<div class="card"><p class="err">${esc(e.message)}</p>
+      <p class="muted" style="margin-top:8px">Agar token error hai to Render → Environment → GITHUB_STORAGE_TOKEN set karke redeploy karo.</p></div>`;
+    if(/unauth/i.test(e.message)) showLogin();
+  }
 }
-window.feat=async(id,v)=>{await api('/api/admin/apps/'+id,{method:'PATCH',body:{isFeatured:!!v}});draw()};
-window.delA=async(id)=>{if(confirm('Delete?')){await api('/api/admin/apps/'+id,{method:'DELETE'});draw()}};
-window.okS=async(id)=>{await api('/api/admin/submissions/'+id+'/approve',{method:'POST',body:{}});draw()};
-window.noS=async(id)=>{await api('/api/admin/submissions/'+id+'/reject',{method:'POST',body:{note:'rejected'}});draw()};
-window.delC=async(id)=>{if(confirm('Delete category?')){await api('/api/categories/'+id,{method:'DELETE'});draw()}};
+window.feat=async(id,v)=>{try{await api('/api/admin/apps/'+id,{method:'PATCH',body:{isFeatured:!!v}});draw()}catch(e){alert(e.message)}};
+window.delA=async(id)=>{if(!confirm('Delete app?'))return; try{await api('/api/admin/apps/'+id,{method:'DELETE'});draw()}catch(e){alert(e.message)}};
+window.okS=async(id)=>{try{await api('/api/admin/submissions/'+id+'/approve',{method:'POST',body:{}});draw()}catch(e){alert(e.message)}};
+window.noS=async(id)=>{try{await api('/api/admin/submissions/'+id+'/reject',{method:'POST',body:{note:'rejected'}});draw()}catch(e){alert(e.message)}};
+window.delC=async(id)=>{if(!confirm('Delete category?'))return; try{await api('/api/categories/'+id,{method:'DELETE'});draw()}catch(e){alert(e.message)}};
 if(KEY) api('/api/admin/stats').then(showApp).catch(showLogin); else showLogin();
 </script>
 </body>

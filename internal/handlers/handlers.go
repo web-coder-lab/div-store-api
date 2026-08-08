@@ -316,10 +316,21 @@ func DownloadApp(w http.ResponseWriter, r *http.Request) {
 
 func AdminStats(w http.ResponseWriter, r *http.Request) {
 	g := db()
-	apps, _ := g.ReadAll(r.Context(), "apps")
-	cats, _ := g.ReadAll(r.Context(), "categories")
+	if g == nil || !g.Enabled() {
+		// still allow login check — zeros + note via health
+		writeJSON(w, 200, map[string]any{
+			"apps": 0, "categories": 0, "reviews": 0, "submissions": 0,
+			"pendingSubmissions": 0, "totalDownloads": 0, "featuredApps": 0,
+			"warning": "GITHUB_STORAGE_TOKEN not set on server",
+		})
+		return
+	}
+	apps, err1 := g.ReadAll(r.Context(), "apps")
+	cats, err2 := g.ReadAll(r.Context(), "categories")
 	revs, _ := g.ReadAll(r.Context(), "reviews")
 	subs, _ := g.ReadAll(r.Context(), "submissions")
+	_ = err1
+	_ = err2
 	var dl int64
 	var feat int
 	pending := 0

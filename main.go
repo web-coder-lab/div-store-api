@@ -126,6 +126,17 @@ func main() {
 		http.Error(w, "method not allowed", 405)
 	})
 	mux.HandleFunc("/api/admin/stats", middleware.RequireAdmin(handlers.AdminStats))
+	mux.HandleFunc("/api/admin/apps/upload", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			http.Error(w, "method not allowed", 405)
+			return
+		}
+		if false /* use RequireAdmin wrapper */ {
+			http.Error(w, "unauthorized", 401)
+			return
+		}
+		handlers.AdminUploadApp(w, r)
+	})
 	mux.HandleFunc("/api/admin/apps", func(w http.ResponseWriter, r *http.Request) {
 		switch r.Method {
 		case http.MethodGet:
@@ -174,15 +185,6 @@ func main() {
 		http.Error(w, "method not allowed", 405)
 	})
 
-	// Store frontend (mobile web)
-	mux.Handle("/web/", http.StripPrefix("/web/", http.FileServer(http.Dir("web"))))
-	mux.HandleFunc("/app", func(w http.ResponseWriter, r *http.Request) {
-		http.ServeFile(w, r, "web/index.html")
-	})
-	mux.Handle("/store/", http.StripPrefix("/store/", http.FileServer(http.Dir("web"))))
-	mux.HandleFunc("/store", func(w http.ResponseWriter, r *http.Request) {
-		http.Redirect(w, r, "/store/", http.StatusFound)
-	})
 	mux.HandleFunc("/terms", func(w http.ResponseWriter, r *http.Request) {
 		http.ServeFile(w, r, "admin/terms.html")
 	})
@@ -195,13 +197,14 @@ func main() {
 	mux.HandleFunc("/admin/", func(w http.ResponseWriter, r *http.Request) {
 		http.ServeFile(w, r, "admin/index.html")
 	})
-	mux.Handle("/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path == "/" {
-			http.Redirect(w, r, "/app", http.StatusFound)
+			w.Header().Set("Content-Type", "application/json")
+			w.Write([]byte(`{"name":"Div Store API","health":"/api/health"}`))
 			return
 		}
 		http.NotFound(w, r)
-	}))
+	})
 
 	port := os.Getenv("PORT")
 	if port == "" {

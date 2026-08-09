@@ -21,7 +21,7 @@ func RegisterDeveloper(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, 503, "Database not ready")
 		return
 	}
-	var companyName, description, email, iconURL string
+	var companyName, description, email, iconURL, bannerURL string
 	ct := r.Header.Get("Content-Type")
 	if strings.HasPrefix(ct, "multipart/") {
 		if err := r.ParseMultipartForm(16 << 20); err != nil {
@@ -35,16 +35,29 @@ func RegisterDeveloper(w http.ResponseWriter, r *http.Request) {
 		description = strings.TrimSpace(r.FormValue("description"))
 		email = strings.ToLower(strings.TrimSpace(r.FormValue("email")))
 		iconURL = strings.TrimSpace(r.FormValue("iconUrl"))
+		bannerURL = strings.TrimSpace(r.FormValue("bannerUrl"))
 		if f, hdr, err := r.FormFile("companyIcon"); err == nil {
 			defer f.Close()
 			data, _ := io.ReadAll(f)
 			if len(data) > 0 {
-				url, err := uploadAssetToRelease(data, hdr.Filename, "icon")
+				url, err := uploadAssetToRelease(data, safeName(hdr.Filename, "icon.png"), "icon")
 				if err != nil {
 					writeErr(w, 500, "icon upload: "+err.Error())
 					return
 				}
 				iconURL = url
+			}
+		}
+		if f, hdr, err := r.FormFile("banner"); err == nil {
+			defer f.Close()
+			data, _ := io.ReadAll(f)
+			if len(data) > 0 {
+				url, err := uploadAssetToRelease(data, safeName(hdr.Filename, "banner.jpg"), "banner")
+				if err != nil {
+					writeErr(w, 500, "banner upload: "+err.Error())
+					return
+				}
+				bannerURL = url
 			}
 		}
 	} else {
@@ -60,6 +73,7 @@ func RegisterDeveloper(w http.ResponseWriter, r *http.Request) {
 		description = strings.TrimSpace(asString(body["description"]))
 		email = strings.ToLower(strings.TrimSpace(asString(body["email"])))
 		iconURL = strings.TrimSpace(asString(body["iconUrl"]))
+		bannerURL = strings.TrimSpace(asString(body["bannerUrl"]))
 	}
 	if companyName == "" || description == "" || email == "" {
 		writeErr(w, 400, "companyName, description, email required")
@@ -79,7 +93,7 @@ func RegisterDeveloper(w http.ResponseWriter, r *http.Request) {
 	now := time.Now().UTC().Format(time.RFC3339)
 	row := map[string]any{
 		"slug": slug, "name": companyName, "companyName": companyName,
-		"logoUrl": iconURL, "description": description, "contactEmail": email,
+		"logoUrl": iconURL, "bannerUrl": bannerURL, "description": description, "contactEmail": email,
 		"email": email, "verified": false, "createdAt": now, "updatedAt": now,
 	}
 	rows = append(rows, row)
@@ -116,12 +130,9 @@ func DeveloperByEmail(w http.ResponseWriter, r *http.Request) {
 }
 
 // POST /api/submit — full company APK submit
-// Accepts multipart:
-//   icon (file optional), iconUrl (optional)
-//   apk (file .apk only) OR apkUrl / downloadUrl (one required)
-//   packageName, description, appName
-//   categories: JSON array of names OR category names comma-separated (max 4)
-//   developerEmail (must have studio account)
+// multipart preferred: icon file + apk file (.apk only)
+// optional fallback: iconUrl / apkUrl
+// categories max 4 by name; developerEmail required
 func SubmitAppFull(w http.ResponseWriter, r *http.Request) {
 	g := db()
 	if g == nil || !g.Enabled() {
@@ -131,7 +142,7 @@ func SubmitAppFull(w http.ResponseWriter, r *http.Request) {
 
 	var (
 		appName, pkg, desc, iconURL, apkURL, devEmail string
-		categoryNames                                  []string
+		categoryNames                                 []string
 	)
 
 	ct := r.Header.Get("Content-Type")
@@ -155,13 +166,12 @@ func SubmitAppFull(w http.ResponseWriter, r *http.Request) {
 		if apkURL == "" {
 			apkURL = strings.TrimSpace(r.FormValue("downloadUrl"))
 		}
-		// categories: JSON array or comma list
 		catRaw := strings.TrimSpace(r.FormValue("categories"))
 		if catRaw == "" {
 			catRaw = strings.TrimSpace(r.FormValue("categoryNames"))
 		}
 		categoryNames = parseCategories(catRaw)
-		// icon file
+
 		if f, hdr, err := r.FormFile("icon"); err == nil {
 			defer f.Close()
 			data, _ := io.ReadAll(f)
@@ -174,7 +184,6 @@ func SubmitAppFull(w http.ResponseWriter, r *http.Request) {
 				iconURL = url
 			}
 		}
-		// apk file — ONLY .apk
 		if f, hdr, err := r.FormFile("apk"); err == nil {
 			defer f.Close()
 			name := hdr.Filename
@@ -235,26 +244,18 @@ func SubmitAppFull(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if iconURL == "" {
-		writeErr(w, 400, "icon file or iconUrl required")
+		writeErr(w, 400, "icon file required (gallery)")
 		return
 	}
 	if apkURL == "" {
-		writeErr(w, 400, "Provide either .apk file or apkUrl/downloadUrl")
+		writeErr(w, 400, "APK file required (.apk from files)")
 		return
-	}
-	if apkURL != "" && strings.Contains(strings.ToLower(apkURL), ".") {
-		// if client sent a non-url path ending without apk when using url mode — soft check
-		if !strings.HasPrefix(apkURL, "http") && !strings.HasSuffix(strings.ToLower(apkURL), ".apk") {
-			writeErr(w, 400, "apkUrl must be http(s) link or end with .apk")
-			return
-		}
 	}
 	if devEmail == "" {
 		writeErr(w, 400, "developerEmail required — create Developer Studio account first")
 		return
 	}
 
-	// Must have developer studio account
 	devs, _ := g.ReadAll(r.Context(), "developer_profiles")
 	var dev map[string]any
 	for _, d := range devs {
@@ -268,7 +269,6 @@ func SubmitAppFull(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Resolve categories from admin list (by name)
 	cats, _ := g.ReadAll(r.Context(), "categories")
 	nameToID := map[string]int64{}
 	for _, c := range cats {
@@ -285,13 +285,11 @@ func SubmitAppFull(w http.ResponseWriter, r *http.Request) {
 		resolved = append(resolved, n)
 		catIDs = append(catIDs, id)
 	}
-	primaryCat := ""
+	primaryCat := "Other"
 	var primaryID int64
 	if len(resolved) > 0 {
 		primaryCat = resolved[0]
 		primaryID = catIDs[0]
-	} else {
-		primaryCat = "Other"
 	}
 
 	idStr, idNum, err := g.NextTypedID(r.Context(), "submissions", ghdb.PrefixRequest)
@@ -301,8 +299,8 @@ func SubmitAppFull(w http.ResponseWriter, r *http.Request) {
 	}
 	now := time.Now().UTC().Format(time.RFC3339)
 	row := map[string]any{
-		"id": idStr, "requestId": idStr, "idNum": idNum,
-		"type": "user_request", "appName": appName, "packageName": pkg, "description": desc,
+		"id": idStr, "requestId": idStr, "idNum": idNum, "type": "user_request",
+		"appName": appName, "packageName": pkg, "description": desc,
 		"developerName": asString(dev["name"]), "developerSlug": asString(dev["slug"]),
 		"developerLogoUrl": asString(dev["logoUrl"]), "developerDescription": asString(dev["description"]),
 		"contactEmail": devEmail, "iconUrl": iconURL, "apkUrl": apkURL, "downloadUrl": apkURL,
@@ -317,13 +315,12 @@ func SubmitAppFull(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, 201, map[string]any{
-		"ok": true,
-		"requestId": idStr,
-		"submission": row,
+		"ok": true, "requestId": idStr, "submission": row,
 		"message": "Thanks for submit your apk. Please wait approval (24 hours).",
 		"next": "go_back_store",
 	})
 }
+
 
 func parseCategories(raw string) []string {
 	raw = strings.TrimSpace(raw)
@@ -401,4 +398,91 @@ func uploadAssetToRelease(data []byte, filename, kind string) (string, error) {
 	}
 	url, _, err := c.UploadAPK(repo.Name, tag, filename, data)
 	return url, err
+}
+
+
+// PATCH/POST /api/developers/update — update logo + banner (multipart or JSON)
+func UpdateDeveloperProfile(w http.ResponseWriter, r *http.Request) {
+	g := db()
+	if g == nil || !g.Enabled() {
+		writeErr(w, 503, "Database not ready")
+		return
+	}
+	var email, iconURL, bannerURL, description, companyName string
+	ct := r.Header.Get("Content-Type")
+	if strings.HasPrefix(ct, "multipart/") {
+		_ = r.ParseMultipartForm(32 << 20)
+		email = strings.ToLower(strings.TrimSpace(r.FormValue("email")))
+		description = strings.TrimSpace(r.FormValue("description"))
+		companyName = strings.TrimSpace(r.FormValue("companyName"))
+		iconURL = strings.TrimSpace(r.FormValue("iconUrl"))
+		bannerURL = strings.TrimSpace(r.FormValue("bannerUrl"))
+		if f, hdr, err := r.FormFile("companyIcon"); err == nil {
+			defer f.Close()
+			data, _ := io.ReadAll(f)
+			if len(data) > 0 {
+				url, err := uploadAssetToRelease(data, safeName(hdr.Filename, "icon.png"), "icon")
+				if err != nil {
+					writeErr(w, 500, err.Error())
+					return
+				}
+				iconURL = url
+			}
+		}
+		if f, hdr, err := r.FormFile("banner"); err == nil {
+			defer f.Close()
+			data, _ := io.ReadAll(f)
+			if len(data) > 0 {
+				url, err := uploadAssetToRelease(data, safeName(hdr.Filename, "banner.jpg"), "banner")
+				if err != nil {
+					writeErr(w, 500, err.Error())
+					return
+				}
+				bannerURL = url
+			}
+		}
+	} else {
+		var body map[string]any
+		_ = json.NewDecoder(r.Body).Decode(&body)
+		email = strings.ToLower(strings.TrimSpace(asString(body["email"])))
+		description = strings.TrimSpace(asString(body["description"]))
+		companyName = strings.TrimSpace(asString(body["companyName"]))
+		iconURL = strings.TrimSpace(asString(body["iconUrl"]))
+		bannerURL = strings.TrimSpace(asString(body["bannerUrl"]))
+	}
+	if email == "" {
+		writeErr(w, 400, "email required")
+		return
+	}
+	rows, err := g.ReadAll(r.Context(), "developer_profiles")
+	if err != nil {
+		writeErr(w, 500, err.Error())
+		return
+	}
+	found := false
+	for i := range rows {
+		if strings.EqualFold(asString(rows[i]["email"]), email) || strings.EqualFold(asString(rows[i]["contactEmail"]), email) {
+			if iconURL != "" {
+				rows[i]["logoUrl"] = iconURL
+			}
+			if bannerURL != "" {
+				rows[i]["bannerUrl"] = bannerURL
+			}
+			if description != "" {
+				rows[i]["description"] = description
+			}
+			if companyName != "" {
+				rows[i]["name"] = companyName
+				rows[i]["companyName"] = companyName
+			}
+			rows[i]["updatedAt"] = time.Now().UTC().Format(time.RFC3339)
+			found = true
+			_ = g.WriteAll(r.Context(), "developer_profiles", rows, "update developer "+email)
+			writeJSON(w, 200, map[string]any{"ok": true, "developer": rows[i]})
+			return
+		}
+	}
+	if !found {
+		writeErr(w, 404, "Developer not found")
+	}
 }

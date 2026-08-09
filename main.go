@@ -72,6 +72,13 @@ func main() {
 		}
 		http.Error(w, "method not allowed", 405)
 	})
+	mux.HandleFunc("/api/developers/update", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost && r.Method != http.MethodPatch {
+			http.Error(w, "method not allowed", 405)
+			return
+		}
+		handlers.UpdateDeveloperProfile(w, r)
+	})
 	mux.HandleFunc("/api/developers/register", func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPost {
 			http.Error(w, "method not allowed", 405)

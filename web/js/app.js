@@ -70,39 +70,69 @@ function renderGames() {
 
 async function renderResearch() {
   hdr.textContent = 'Research';
-  const email = studioEmail();
-  let dev = null;
-  if (email) {
-    try {
-      const r = await api('/api/developers/by-email?email=' + encodeURIComponent(email));
-      dev = r.developer;
-    } catch (_) {}
-  }
+  const hist = JSON.parse(localStorage.getItem('research_history') || '[]');
   view.innerHTML = `
-    <h1 class="page">Research</h1>
-    <p class="dim">Developer Studio & resources</p>
-    <div style="height:12px"></div>
-    ${
-      dev
-        ? `<div class="panel">
-            <h2>${esc(dev.name || dev.companyName)}</h2>
-            <p class="dim">${esc(dev.email || email)}</p>
-            <button type="button" class="btn" id="goSubmit" style="margin-top:12px">Submit APK</button>
-            <button type="button" class="btn ghost" id="goDev">Public profile</button>
-          </div>`
-        : `<div class="panel">
-            <h2>Developer Studio</h2>
-            <p class="dim">Create a publisher account to submit APKs. Upload stays locked until you register.</p>
-            <button type="button" class="btn" id="goReg" style="margin-top:12px">Create account</button>
-          </div>`
-    }
-    <a class="legal" href="${API}/terms" target="_blank" rel="noopener">Terms of Service</a>
-    <a class="legal" href="${API}/privacy" target="_blank" rel="noopener">Privacy Policy</a>
-    <a class="legal" href="${API}/api/health" target="_blank" rel="noopener">API Health</a>
+    <div style="display:flex;align-items:center;justify-content:space-between">
+      <h1 class="page" style="margin:0">Research</h1>
+      <button type="button" class="icon-btn" id="btnSet">⚙</button>
+    </div>
+    <input id="rq" placeholder="Research apps, packages, developers…" style="margin-top:12px"/>
+    <div id="rhist"></div>
+    <div id="rres" class="grid" style="margin-top:12px"></div>
   `;
-  document.getElementById('goReg')?.addEventListener('click', renderRegister);
-  document.getElementById('goSubmit')?.addEventListener('click', renderSubmit);
-  document.getElementById('goDev')?.addEventListener('click', () => renderDeveloper(dev.slug));
+  document.getElementById('btnSet').onclick = renderSettings;
+  const histEl = document.getElementById('rhist');
+  const paintHist = () => {
+    if (!hist.length) {
+      histEl.innerHTML = `<div class="empty">Your research history will appear here</div>`;
+      return;
+    }
+    histEl.innerHTML = `<p class="dim" style="margin:12px 0 6px">History <button type="button" class="chip" id="clrH">Clear</button></p>` +
+      hist.map((h) => `<button type="button" class="chip" data-h="${esc(h)}">${esc(h)}</button>`).join(' ');
+    document.getElementById('clrH')?.addEventListener('click', () => {
+      localStorage.setItem('research_history', '[]');
+      hist.length = 0;
+      paintHist();
+    });
+    histEl.querySelectorAll('[data-h]').forEach((b) => b.onclick = () => {
+      document.getElementById('rq').value = b.getAttribute('data-h');
+      document.getElementById('rq').dispatchEvent(new Event('input'));
+    });
+  };
+  paintHist();
+  document.getElementById('rq').oninput = (e) => {
+    const q = e.target.value.toLowerCase().trim();
+    const res = document.getElementById('rres');
+    if (!q) { res.innerHTML = ''; paintHist(); return; }
+    histEl.innerHTML = '';
+    const list = allApps.filter((a) =>
+      (a.name||'').toLowerCase().includes(q) ||
+      (a.packageName||'').toLowerCase().includes(q) ||
+      (a.description||'').toLowerCase().includes(q)
+    );
+    res.innerHTML = list.map(appCard).join('') || '<div class="empty">No results</div>';
+    bindAppCards();
+  };
+  document.getElementById('rq').addEventListener('change', (e) => {
+    const v = e.target.value.trim();
+    if (!v) return;
+    const h = JSON.parse(localStorage.getItem('research_history') || '[]').filter((x) => x !== v);
+    h.unshift(v);
+    localStorage.setItem('research_history', JSON.stringify(h.slice(0, 30)));
+  });
+}
+
+function renderSettings() {
+  hdr.textContent = 'Settings';
+  view.innerHTML = `
+    <button type="button" class="back" id="bk">← Back</button>
+    <h1 class="page">Settings</h1>
+    <div class="panel" id="goStudio" style="cursor:pointer"><h2>Developer Studio</h2><p class="dim">Register & submit APKs</p></div>
+    <a class="legal" href="${API}/privacy" target="_blank" rel="noopener">Privacy Policy</a>
+    <a class="legal" href="${API}/terms" target="_blank" rel="noopener">Terms of Service</a>
+  `;
+  document.getElementById('bk').onclick = () => showTab(tab);
+  document.getElementById('goStudio').onclick = renderRegister;
 }
 
 function renderRegister() {
@@ -363,7 +393,7 @@ async function startInstall(a) {
     p = Math.min(0.95, p + 0.04);
     ring.style.strokeDashoffset = String(circ * (1 - p));
     pct.textContent = Math.round(p * 100) + '%';
-    status.textContent = 'Downloading… ' + Math.round(p * 100) + '%';
+    status.textContent = Math.round(p * 100) + '% downloaded';
   }, 120);
   try {
     const id = a.apkId || a.id;

@@ -167,6 +167,15 @@ func main() {
 		http.Error(w, "method not allowed", 405)
 	})
 
+	// Store frontend (mobile web)
+	mux.Handle("/web/", http.StripPrefix("/web/", http.FileServer(http.Dir("web"))))
+	mux.HandleFunc("/app", func(w http.ResponseWriter, r *http.Request) {
+		http.ServeFile(w, r, "web/index.html")
+	})
+	mux.Handle("/store/", http.StripPrefix("/store/", http.FileServer(http.Dir("web"))))
+	mux.HandleFunc("/store", func(w http.ResponseWriter, r *http.Request) {
+		http.Redirect(w, r, "/store/", http.StatusFound)
+	})
 	mux.HandleFunc("/terms", func(w http.ResponseWriter, r *http.Request) {
 		http.ServeFile(w, r, "admin/terms.html")
 	})
@@ -181,7 +190,7 @@ func main() {
 	})
 	mux.Handle("/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path == "/" {
-			http.Redirect(w, r, "/admin", http.StatusFound)
+			http.Redirect(w, r, "/app", http.StatusFound)
 			return
 		}
 		http.NotFound(w, r)

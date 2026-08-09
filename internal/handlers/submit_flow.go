@@ -294,14 +294,15 @@ func SubmitAppFull(w http.ResponseWriter, r *http.Request) {
 		primaryCat = "Other"
 	}
 
-	id, err := g.NextID(r.Context(), "submissions")
+	idStr, idNum, err := g.NextTypedID(r.Context(), "submissions", ghdb.PrefixRequest)
 	if err != nil {
 		writeErr(w, 500, err.Error())
 		return
 	}
 	now := time.Now().UTC().Format(time.RFC3339)
 	row := map[string]any{
-		"id": id, "appName": appName, "packageName": pkg, "description": desc,
+		"id": idStr, "requestId": idStr, "idNum": idNum,
+		"type": "user_request", "appName": appName, "packageName": pkg, "description": desc,
 		"developerName": asString(dev["name"]), "developerSlug": asString(dev["slug"]),
 		"developerLogoUrl": asString(dev["logoUrl"]), "developerDescription": asString(dev["description"]),
 		"contactEmail": devEmail, "iconUrl": iconURL, "apkUrl": apkURL, "downloadUrl": apkURL,
@@ -311,12 +312,13 @@ func SubmitAppFull(w http.ResponseWriter, r *http.Request) {
 		"submittedAt": now, "reviewedAt": nil,
 		"message": "Thanks for submitting your APK. Please wait for approval (up to 24 hours).",
 	}
-	if err := g.UpsertByID(r.Context(), "submissions", id, row); err != nil {
+	if err := g.UpsertByStringID(r.Context(), "submissions", idStr, row); err != nil {
 		writeErr(w, 500, err.Error())
 		return
 	}
 	writeJSON(w, 201, map[string]any{
 		"ok": true,
+		"requestId": idStr,
 		"submission": row,
 		"message": "Thanks for submit your apk. Please wait approval (24 hours).",
 		"next": "go_back_store",

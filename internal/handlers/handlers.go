@@ -61,11 +61,14 @@ func (nilCtx) Err() error                  { return nil }
 func (nilCtx) Value(any) any               { return nil }
 
 func mapApp(d map[string]any, names map[int64]string) map[string]any {
-	id := ghdb.ToInt(d["id"])
+	id := d["id"]
+	if id == nil {
+		id = d["apkId"]
+	}
 	cid := ghdb.ToInt(d["categoryId"])
 	return map[string]any{
-		"id": id, "name": d["name"], "packageName": d["packageName"],
-		"description": d["description"], "categoryId": cid, "categoryName": names[cid],
+		"id": id, "apkId": id, "type": "apk", "name": d["name"], "packageName": d["packageName"],
+		"description": d["description"], "categoryId": d["categoryId"], "categoryName": names[cid],
 		"version": d["version"], "size": d["size"], "iconUrl": d["iconUrl"],
 		"screenshotUrls": d["screenshotUrls"], "downloadUrl": d["downloadUrl"],
 		"developerSlug": d["developerSlug"], "developerLogoUrl": d["developerLogoUrl"],
@@ -153,14 +156,13 @@ func ListApps(w http.ResponseWriter, r *http.Request) {
 }
 
 func GetApp(w http.ResponseWriter, r *http.Request) {
-	idStr := strings.TrimPrefix(r.URL.Path, "/api/apps/")
-	id, _ := strconv.ParseInt(strings.Split(idStr, "/")[0], 10, 64)
+	idStr := strings.Split(strings.TrimPrefix(r.URL.Path, "/api/apps/"), "/")[0]
 	g := db()
 	if g == nil {
 		writeErr(w, 503, "GitHub database not configured")
 		return
 	}
-	row, err := g.GetByID(r.Context(), "apps", id)
+	row, err := g.GetByStringID(r.Context(), "apps", idStr)
 	if err != nil {
 		writeErr(w, 404, "App not found.")
 		return
@@ -214,16 +216,16 @@ func CreateCategory(w http.ResponseWriter, r *http.Request) {
 		body.Icon = "Package"
 	}
 	g := db()
-	id, err := g.NextID(r.Context(), "categories")
+	idStr, idNum, err := g.NextTypedID(r.Context(), "categories", ghdb.PrefixCat)
 	if err != nil {
 		writeErr(w, 500, err.Error())
 		return
 	}
 	row := map[string]any{
-		"id": id, "name": body.Name, "icon": body.Icon,
-		"createdAt": time.Now().UTC().Format(time.RFC3339),
+		"id": idStr, "idNum": idNum, "name": body.Name, "icon": body.Icon,
+		"type": "category", "createdAt": time.Now().UTC().Format(time.RFC3339),
 	}
-	if err := g.UpsertByID(r.Context(), "categories", id, row); err != nil {
+	if err := g.UpsertByStringID(r.Context(), "categories", idStr, row); err != nil {
 		writeErr(w, 500, err.Error())
 		return
 	}
@@ -232,8 +234,8 @@ func CreateCategory(w http.ResponseWriter, r *http.Request) {
 }
 
 func DeleteCategory(w http.ResponseWriter, r *http.Request) {
-	id, _ := strconv.ParseInt(strings.TrimPrefix(r.URL.Path, "/api/categories/"), 10, 64)
-	if err := db().DeleteByID(r.Context(), "categories", id); err != nil {
+	idStr := strings.TrimPrefix(r.URL.Path, "/api/categories/")
+	if err := db().DeleteByStringID(r.Context(), "categories", idStr); err != nil {
 		writeErr(w, 500, err.Error())
 		return
 	}
@@ -246,15 +248,15 @@ func ListReviews(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, 400, "Invalid path.")
 		return
 	}
-	appID, _ := strconv.ParseInt(parts[2], 10, 64)
 	rows, err := db().ReadAll(r.Context(), "reviews")
 	if err != nil {
 		writeErr(w, 500, err.Error())
 		return
 	}
+	appKey := parts[2]
 	out := make([]map[string]any, 0)
 	for _, d := range rows {
-		if ghdb.ToInt(d["appId"]) == appID {
+		if ghdb.IDEquals(d["appId"], appKey) || fmt.Sprint(d["appId"]) == appKey {
 			out = append(out, d)
 		}
 	}
@@ -263,7 +265,10 @@ func ListReviews(w http.ResponseWriter, r *http.Request) {
 
 func CreateReview(w http.ResponseWriter, r *http.Request) {
 	parts := strings.Split(strings.Trim(r.URL.Path, "/"), "/")
-	appID, _ := strconv.ParseInt(parts[2], 10, 64)
+	if len(parts) < 4 {
+		writeErr(w, 400, "Invalid path.")
+		return
+	}
 	var body struct {
 		ReviewerName string `json:"reviewerName"`
 		Name         string `json:"name"`
@@ -282,17 +287,17 @@ func CreateReview(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, 400, "Rating 1-5 and comment required.")
 		return
 	}
-	id, err := db().NextID(r.Context(), "reviews")
+	idStr, idNum, err := db().NextTypedID(r.Context(), "reviews", ghdb.PrefixReview)
 	if err != nil {
 		writeErr(w, 500, err.Error())
 		return
 	}
 	row := map[string]any{
-		"id": id, "appId": appID, "reviewerName": name,
-		"rating": body.Rating, "comment": body.Comment,
+		"id": idStr, "idNum": idNum, "appId": parts[2], "reviewerName": name,
+		"rating": body.Rating, "comment": body.Comment, "type": "review",
 		"createdAt": time.Now().UTC().Format(time.RFC3339),
 	}
-	if err := db().UpsertByID(r.Context(), "reviews", id, row); err != nil {
+	if err := db().UpsertByStringID(r.Context(), "reviews", idStr, row); err != nil {
 		writeErr(w, 500, err.Error())
 		return
 	}
@@ -301,16 +306,16 @@ func CreateReview(w http.ResponseWriter, r *http.Request) {
 
 func DownloadApp(w http.ResponseWriter, r *http.Request) {
 	parts := strings.Split(strings.Trim(r.URL.Path, "/"), "/")
-	id, _ := strconv.ParseInt(parts[2], 10, 64)
-	row, err := db().GetByID(r.Context(), "apps", id)
+	idStr := parts[2]
+	row, err := db().GetByStringID(r.Context(), "apps", idStr)
 	if err != nil {
 		writeErr(w, 404, "App not found.")
 		return
 	}
 	row["downloads"] = ghdb.ToInt(row["downloads"]) + 1
-	_ = db().UpsertByID(r.Context(), "apps", id, row)
+	_ = db().UpsertByStringID(r.Context(), "apps", idStr, row)
 	writeJSON(w, 200, map[string]any{
-		"ok": true, "downloadUrl": row["downloadUrl"], "source": "github-release",
+		"ok": true, "apkId": idStr, "downloadUrl": row["downloadUrl"], "source": "github-release",
 	})
 }
 
@@ -383,14 +388,15 @@ func AdminCreateApp(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	id, err := db().NextID(r.Context(), "apps")
+	idStr, idNum, err := db().NextTypedID(r.Context(), "apps", ghdb.PrefixAPK)
 	if err != nil {
 		writeErr(w, 500, err.Error())
 		return
 	}
 	row := map[string]any{
-		"id": id, "name": body["name"], "packageName": body["packageName"],
-		"description": body["description"], "categoryId": ghdb.ToInt(body["categoryId"]),
+		"id": idStr, "apkId": idStr, "idNum": idNum, "type": "apk",
+		"name": body["name"], "packageName": body["packageName"],
+		"description": body["description"], "categoryId": body["categoryId"],
 		"version": strOr(body["version"], "1.0.0"), "size": strOr(body["size"], "10 MB"),
 		"iconUrl": body["iconUrl"], "screenshotUrls": body["screenshotUrls"],
 		"downloadUrl": body["downloadUrl"], "developerSlug": body["developerSlug"],
@@ -404,7 +410,7 @@ func AdminCreateApp(w http.ResponseWriter, r *http.Request) {
 	if row["screenshotUrls"] == nil {
 		row["screenshotUrls"] = []any{}
 	}
-	if err := db().UpsertByID(r.Context(), "apps", id, row); err != nil {
+	if err := db().UpsertByStringID(r.Context(), "apps", idStr, row); err != nil {
 		writeErr(w, 500, err.Error())
 		return
 	}
@@ -412,18 +418,21 @@ func AdminCreateApp(w http.ResponseWriter, r *http.Request) {
 }
 
 func AdminUpdateApp(w http.ResponseWriter, r *http.Request) {
-	id, _ := strconv.ParseInt(strings.TrimPrefix(r.URL.Path, "/api/admin/apps/"), 10, 64)
+	idStr := strings.TrimPrefix(r.URL.Path, "/api/admin/apps/")
 	var body map[string]any
 	_ = json.NewDecoder(r.Body).Decode(&body)
-	row, err := db().GetByID(r.Context(), "apps", id)
+	row, err := db().GetByStringID(r.Context(), "apps", idStr)
 	if err != nil {
 		writeErr(w, 404, "App not found.")
 		return
 	}
 	for k, v := range body {
+		if k == "id" || k == "apkId" || k == "type" {
+			continue
+		}
 		row[k] = v
 	}
-	if err := db().UpsertByID(r.Context(), "apps", id, row); err != nil {
+	if err := db().UpsertByStringID(r.Context(), "apps", idStr, row); err != nil {
 		writeErr(w, 500, err.Error())
 		return
 	}
@@ -431,8 +440,8 @@ func AdminUpdateApp(w http.ResponseWriter, r *http.Request) {
 }
 
 func AdminDeleteApp(w http.ResponseWriter, r *http.Request) {
-	id, _ := strconv.ParseInt(strings.TrimPrefix(r.URL.Path, "/api/admin/apps/"), 10, 64)
-	if err := db().DeleteByID(r.Context(), "apps", id); err != nil {
+	idStr := strings.TrimPrefix(r.URL.Path, "/api/admin/apps/")
+	if err := db().DeleteByStringID(r.Context(), "apps", idStr); err != nil {
 		writeErr(w, 500, err.Error())
 		return
 	}
@@ -518,8 +527,7 @@ func SubmitApp(w http.ResponseWriter, r *http.Request) {
 func ApproveSubmission(w http.ResponseWriter, r *http.Request) {
 	idStr := strings.TrimPrefix(r.URL.Path, "/api/admin/submissions/")
 	idStr = strings.TrimSuffix(idStr, "/approve")
-	id, _ := strconv.ParseInt(idStr, 10, 64)
-	sub, err := db().GetByID(r.Context(), "submissions", id)
+	sub, err := db().GetByStringID(r.Context(), "submissions", idStr)
 	if err != nil {
 		writeErr(w, 404, "Not found.")
 		return
@@ -570,37 +578,40 @@ func ApproveSubmission(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 	}
-	appID, _ := db().NextID(r.Context(), "apps")
+	apkID, apkNum, _ := db().NextTypedID(r.Context(), "apps", ghdb.PrefixAPK)
 	dl := sub["apkUrl"]
 	if asString(dl) == "" {
 		dl = sub["downloadUrl"]
 	}
 	app := map[string]any{
-		"id": appID, "name": sub["appName"], "packageName": sub["packageName"],
+		"id": apkID, "apkId": apkID, "idNum": apkNum, "type": "apk",
+		"name": sub["appName"], "packageName": sub["packageName"],
 		"description": sub["description"], "categoryId": catID, "categoryIds": catIDs,
 		"categoryNames": catNames, "version": sub["version"], "size": sub["size"],
 		"iconUrl": sub["iconUrl"], "screenshotUrls": sub["screenshotUrls"],
 		"downloadUrl": dl, "developerSlug": sub["developerSlug"], "scanStatus": "safe",
 		"downloads": int64(0), "rating": float64(0), "reviewCount": int64(0),
 		"isFeatured": false, "isActive": true, "developer": sub["developerName"],
-		"createdAt": time.Now().UTC().Format(time.RFC3339),
+		"fromRequestId": idStr, "createdAt": time.Now().UTC().Format(time.RFC3339),
 	}
-	_ = db().UpsertByID(r.Context(), "apps", appID, app)
+	_ = db().UpsertByStringID(r.Context(), "apps", apkID, app)
 	sub["status"] = "approved"
 	sub["reviewedAt"] = time.Now().UTC().Format(time.RFC3339)
-	_ = db().UpsertByID(r.Context(), "submissions", id, sub)
-	writeJSON(w, 200, map[string]any{"submission": "approved", "app": app})
+	sub["approvedApkId"] = apkID
+	_ = db().UpsertByStringID(r.Context(), "submissions", idStr, sub)
+	writeJSON(w, 200, map[string]any{
+		"submission": "approved", "requestId": idStr, "apkId": apkID, "app": app,
+	})
 }
 
 func RejectSubmission(w http.ResponseWriter, r *http.Request) {
 	idStr := strings.TrimPrefix(r.URL.Path, "/api/admin/submissions/")
 	idStr = strings.TrimSuffix(idStr, "/reject")
-	id, _ := strconv.ParseInt(idStr, 10, 64)
 	var body struct {
 		Note string `json:"note"`
 	}
 	_ = json.NewDecoder(r.Body).Decode(&body)
-	sub, err := db().GetByID(r.Context(), "submissions", id)
+	sub, err := db().GetByStringID(r.Context(), "submissions", idStr)
 	if err != nil {
 		writeErr(w, 404, "Not found.")
 		return
@@ -608,8 +619,8 @@ func RejectSubmission(w http.ResponseWriter, r *http.Request) {
 	sub["status"] = "rejected"
 	sub["reviewNote"] = body.Note
 	sub["reviewedAt"] = time.Now().UTC().Format(time.RFC3339)
-	_ = db().UpsertByID(r.Context(), "submissions", id, sub)
-	writeJSON(w, 200, map[string]any{"ok": true, "status": "rejected"})
+	_ = db().UpsertByStringID(r.Context(), "submissions", idStr, sub)
+	writeJSON(w, 200, map[string]any{"ok": true, "requestId": idStr, "status": "rejected"})
 }
 
 func ListSettings(w http.ResponseWriter, r *http.Request) {

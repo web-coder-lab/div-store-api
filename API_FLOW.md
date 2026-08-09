@@ -30,3 +30,13 @@ Server: validates `.apk` → uploads to GitHub Releases → saves release URL on
 
 ## Admin
 Approve submission → app gets `downloadUrl` + `categoryNames` (max 4)
+
+## IDs (no mix)
+| Kind | Prefix | Example | Collection |
+|------|--------|---------|------------|
+| Published APK/app | `apk_` | `apk_1` | `apps` |
+| User submit request | `req_` | `req_1` | `submissions` |
+| Category | `cat_` | `cat_8` | `categories` |
+| Review | `rev_` | `rev_1` | `reviews` |
+
+Approve: `POST /api/admin/submissions/req_1/approve` → creates `apk_N`, sets `fromRequestId`.

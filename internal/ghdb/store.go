@@ -266,3 +266,50 @@ var (
 
 func SetGlobal(s *Store) { gMu.Lock(); gSt = s; gMu.Unlock() }
 func Global() *Store     { gMu.RLock(); defer gMu.RUnlock(); return gSt }
+
+
+func (s *Store) GetByStringID(ctx context.Context, collection, id string) (map[string]any, error) {
+	rows, err := s.ReadAll(ctx, collection)
+	if err != nil {
+		return nil, err
+	}
+	for _, r := range rows {
+		if IDEquals(r["id"], id) {
+			return r, nil
+		}
+	}
+	return nil, fmt.Errorf("not found")
+}
+
+func (s *Store) DeleteByStringID(ctx context.Context, collection, id string) error {
+	rows, err := s.ReadAll(ctx, collection)
+	if err != nil {
+		return err
+	}
+	out := make([]map[string]any, 0, len(rows))
+	for _, r := range rows {
+		if !IDEquals(r["id"], id) {
+			out = append(out, r)
+		}
+	}
+	return s.WriteAll(ctx, collection, out, fmt.Sprintf("delete %s id=%s", collection, id))
+}
+
+func (s *Store) UpsertByStringID(ctx context.Context, collection, id string, row map[string]any) error {
+	rows, err := s.ReadAll(ctx, collection)
+	if err != nil {
+		return err
+	}
+	found := false
+	for i := range rows {
+		if IDEquals(rows[i]["id"], id) {
+			rows[i] = row
+			found = true
+			break
+		}
+	}
+	if !found {
+		rows = append(rows, row)
+	}
+	return s.WriteAll(ctx, collection, rows, fmt.Sprintf("upsert %s id=%s", collection, id))
+}

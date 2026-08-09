@@ -171,8 +171,8 @@ async function draw(){
           <div class="s">${esc(a.packageName)}</div>
           <div class="row" style="margin-top:6px">
             <span class="pill">${a.downloads||0} dl</span>
-            <button class="g sm" onclick="feat(${a.id},${!a.isFeatured})">${a.isFeatured?'Unfeature':'Feature'}</button>
-            <button class="d sm" onclick="delA(${a.id})">Del</button>
+            <button class="g sm" onclick="feat('${a.id}',${!a.isFeatured})">${a.isFeatured?'Unfeature':'Feature'}</button>
+            <button class="d sm" onclick="delA('${a.id}')">Del</button>
           </div></div></div>`).join(''):'<div class="empty">No apps yet</div>')+'</div>';
       $('newApp').onclick=()=>$('newAppForm').classList.toggle('hidden');
       $('a_save').onclick=async()=>{
@@ -193,8 +193,8 @@ async function draw(){
           <div class="m"><div class="t">${esc(s.appName)}</div>
           <div class="s">${esc(s.developerName)} · ${esc(s.packageName)}</div>
           <div class="row" style="margin-top:6px">
-            <button class="sm" onclick="okS(${s.id})">Approve</button>
-            <button class="d sm" onclick="noS(${s.id})">Reject</button>
+            <button class="sm" onclick="okS('${s.id}')">Approve</button>
+            <button class="d sm" onclick="noS('${s.id}')">Reject</button>
           </div></div></div>`).join(''):'<div class="empty">Inbox empty</div>')+'</div>';
     } else if(T==='cats'){
       const cats=await api('/api/categories')||[];
@@ -203,7 +203,7 @@ async function draw(){
         <div style="margin-top:10px">`+
         (cats.length?cats.map(c=>`<div class="item"><div class="m">
           <div class="t">${esc(c.name)}</div><div class="s">${c.appCount||0} apps · id ${c.id}</div></div>
-          <button class="d sm" onclick="delC(${c.id})">Del</button></div>`).join(''):'<div class="empty">No categories</div>')+
+          <button class="d sm" onclick="delC('${c.id}')">Del</button></div>`).join(''):'<div class="empty">No categories</div>')+
         `</div></div>`;
       $('ca').onclick=async()=>{
         const n=$('cn').value.trim(); if(!n)return;

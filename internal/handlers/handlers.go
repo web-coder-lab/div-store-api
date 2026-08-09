@@ -31,7 +31,7 @@ func Health(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, 200, map[string]any{
 		"status":  "ok",
 		"name":    "Div Store API",
-		"version": "2.0.0-go-ghdb",
+		"version": "2.1.0-typed-ids",
 		"engine":  "go",
 		"database": map[string]any{
 			"engine": "github",

@@ -25,6 +25,14 @@ func main() {
 
 	mux := http.NewServeMux()
 
+	mux.HandleFunc("/api/notifications", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet {
+			http.Error(w, "method not allowed", 405)
+			return
+		}
+		handlers.ListNotifications(w, r)
+	})
+	mux.HandleFunc("/api/admin/notifications", middleware.RequireAdmin(handlers.AdminCreateNotification))
 	mux.HandleFunc("/api/health", handlers.Health)
 	mux.HandleFunc("/api/apps", func(w http.ResponseWriter, r *http.Request) {
 		if r.Method == http.MethodGet {

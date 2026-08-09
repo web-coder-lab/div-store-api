@@ -72,6 +72,20 @@ func main() {
 		}
 		http.Error(w, "method not allowed", 405)
 	})
+	mux.HandleFunc("/api/developers/register", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			http.Error(w, "method not allowed", 405)
+			return
+		}
+		handlers.RegisterDeveloper(w, r)
+	})
+	mux.HandleFunc("/api/developers/by-email", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet {
+			http.Error(w, "method not allowed", 405)
+			return
+		}
+		handlers.DeveloperByEmail(w, r)
+	})
 	mux.HandleFunc("/api/developers", func(w http.ResponseWriter, r *http.Request) {
 		switch r.Method {
 		case http.MethodGet:
@@ -99,7 +113,7 @@ func main() {
 	})
 	mux.HandleFunc("/api/submit", func(w http.ResponseWriter, r *http.Request) {
 		if r.Method == http.MethodPost {
-			handlers.SubmitApp(w, r)
+			handlers.SubmitAppFull(w, r)
 			return
 		}
 		http.Error(w, "method not allowed", 405)

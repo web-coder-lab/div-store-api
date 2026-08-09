@@ -528,28 +528,59 @@ func ApproveSubmission(w http.ResponseWriter, r *http.Request) {
 	if catName == "" {
 		catName = "Other"
 	}
-	cats, _ := db().ReadAll(r.Context(), "categories")
-	var catID int64
-	for _, c := range cats {
-		if asString(c["name"]) == catName {
-			catID = ghdb.ToInt(c["id"])
-			break
+	catNames := []string{}
+	if arr, ok := sub["categoryNames"].([]any); ok {
+		for _, v := range arr {
+			if s := asString(v); s != "" {
+				catNames = append(catNames, s)
+			}
 		}
 	}
-	if catID == 0 {
-		catID, _ = db().NextID(r.Context(), "categories")
-		_ = db().UpsertByID(r.Context(), "categories", catID, map[string]any{
-			"id": catID, "name": catName, "icon": "Package",
-			"createdAt": time.Now().UTC().Format(time.RFC3339),
-		})
+	if len(catNames) == 0 {
+		catNames = []string{catName}
+	}
+	if len(catNames) > 4 {
+		catNames = catNames[:4]
+	}
+	cats, _ := db().ReadAll(r.Context(), "categories")
+	var catID int64
+	var catIDs []int64
+	for _, n := range catNames {
+		found := false
+		for _, c := range cats {
+			if asString(c["name"]) == n {
+				id := ghdb.ToInt(c["id"])
+				catIDs = append(catIDs, id)
+				if catID == 0 {
+					catID = id
+				}
+				found = true
+				break
+			}
+		}
+		if !found {
+			nid, _ := db().NextID(r.Context(), "categories")
+			_ = db().UpsertByID(r.Context(), "categories", nid, map[string]any{
+				"id": nid, "name": n, "icon": "Package",
+				"createdAt": time.Now().UTC().Format(time.RFC3339),
+			})
+			catIDs = append(catIDs, nid)
+			if catID == 0 {
+				catID = nid
+			}
+		}
 	}
 	appID, _ := db().NextID(r.Context(), "apps")
+	dl := sub["apkUrl"]
+	if asString(dl) == "" {
+		dl = sub["downloadUrl"]
+	}
 	app := map[string]any{
 		"id": appID, "name": sub["appName"], "packageName": sub["packageName"],
-		"description": sub["description"], "categoryId": catID,
-		"version": sub["version"], "size": sub["size"], "iconUrl": sub["iconUrl"],
-		"screenshotUrls": sub["screenshotUrls"], "downloadUrl": sub["apkUrl"],
-		"developerSlug": sub["developerSlug"], "scanStatus": "safe",
+		"description": sub["description"], "categoryId": catID, "categoryIds": catIDs,
+		"categoryNames": catNames, "version": sub["version"], "size": sub["size"],
+		"iconUrl": sub["iconUrl"], "screenshotUrls": sub["screenshotUrls"],
+		"downloadUrl": dl, "developerSlug": sub["developerSlug"], "scanStatus": "safe",
 		"downloads": int64(0), "rating": float64(0), "reviewCount": int64(0),
 		"isFeatured": false, "isActive": true, "developer": sub["developerName"],
 		"createdAt": time.Now().UTC().Format(time.RFC3339),

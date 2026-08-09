@@ -131,11 +131,7 @@ func main() {
 			http.Error(w, "method not allowed", 405)
 			return
 		}
-		if false /* use RequireAdmin wrapper */ {
-			http.Error(w, "unauthorized", 401)
-			return
-		}
-		handlers.AdminUploadApp(w, r)
+		middleware.RequireAdmin(handlers.AdminUploadApp)(w, r)
 	})
 	mux.HandleFunc("/api/admin/apps", func(w http.ResponseWriter, r *http.Request) {
 		switch r.Method {

@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"os"
 	"strings"
+	"time"
 
 	"github.com/husdainshah2-web/div-store/internal/ghdb"
 	"github.com/husdainshah2-web/div-store/internal/handlers"
@@ -224,7 +225,15 @@ func main() {
 		middleware.RateLimit,
 		middleware.MaxBody(350<<20),
 	)
-	if err := http.ListenAndServe(addr, handler); err != nil {
+	srv := &http.Server{
+		Addr:              addr,
+		Handler:           handler,
+		ReadTimeout:       20 * time.Minute,
+		WriteTimeout:      20 * time.Minute,
+		IdleTimeout:       2 * time.Minute,
+		ReadHeaderTimeout: 30 * time.Second,
+	}
+	if err := srv.ListenAndServe(); err != nil {
 		fmt.Fprintf(os.Stderr, "server error: %v\n", err)
 		os.Exit(1)
 	}

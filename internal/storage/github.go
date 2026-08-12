@@ -42,7 +42,7 @@ func NewFromEnv() *Client {
 		Token:    config.Token(),
 		Prefix:   config.APKPrefix(), // ONLY div-store-apks-* repos
 		MaxBytes: DefaultMaxBytes,
-		HTTP:     &http.Client{Timeout: 120 * time.Second},
+		HTTP:     &http.Client{Timeout: 15 * time.Minute},
 	}
 }
 
@@ -182,24 +182,30 @@ func (c *Client) PickRepo(extraBytes int64) (PoolRepo, error) {
 
 // UploadAPK creates/uses a release tag and uploads asset. Returns browser download URL.
 func (c *Client) UploadAPK(repo, tag, assetName string, data []byte) (string, int64, error) {
+	return c.UploadAPKReader(repo, tag, assetName, bytes.NewReader(data), int64(len(data)))
+}
+
+// UploadAPKReader streams APK to GitHub Releases without holding full file in a second buffer.
+func (c *Client) UploadAPKReader(repo, tag, assetName string, r io.Reader, size int64) (string, int64, error) {
 	if !c.enabled() {
 		return "", 0, fmt.Errorf("github storage not configured")
 	}
-	// ensure release exists
 	rel, err := c.getOrCreateRelease(repo, tag)
 	if err != nil {
 		return "", 0, err
 	}
-	// upload asset
 	url := fmt.Sprintf("https://uploads.github.com/repos/%s/%s/releases/%d/assets?name=%s",
 		c.Owner, repo, rel.ID, assetName)
-	req, err := http.NewRequest("POST", url, bytes.NewReader(data))
+	req, err := http.NewRequest("POST", url, r)
 	if err != nil {
 		return "", 0, err
 	}
 	req.Header.Set("Authorization", "Bearer "+c.Token)
 	req.Header.Set("Content-Type", "application/octet-stream")
 	req.Header.Set("Accept", "application/vnd.github+json")
+	if size > 0 {
+		req.ContentLength = size
+	}
 	resp, err := c.HTTP.Do(req)
 	if err != nil {
 		return "", 0, err

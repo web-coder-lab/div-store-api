@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"os"
 	"net/http"
 	"path/filepath"
 	"strings"
@@ -191,12 +192,25 @@ func SubmitAppFull(w http.ResponseWriter, r *http.Request) {
 				writeErr(w, 400, "Only .apk files are allowed")
 				return
 			}
-			data, err := io.ReadAll(f)
-			if err != nil || len(data) == 0 {
+			// Stream large APK to temp disk (avoids OOM on 200-300MB)
+			tmp, err := os.CreateTemp("", "div-apk-*.apk")
+			if err != nil {
+				writeErr(w, 500, "Server temp storage error")
+				return
+			}
+			tmpPath := tmp.Name()
+			defer os.Remove(tmpPath)
+			written, err := io.Copy(tmp, f)
+			_ = tmp.Close()
+			if err != nil || written == 0 {
 				writeErr(w, 400, "Empty APK file")
 				return
 			}
-			url, err := uploadAssetToRelease(data, filepath.Base(name), "apk")
+			if written > 320<<20 {
+				writeErr(w, 400, "APK too large (max 320MB)")
+				return
+			}
+			url, err := uploadAssetFileToRelease(tmpPath, filepath.Base(name), "apk")
 			if err != nil {
 				writeErr(w, 500, "APK upload to GitHub Releases failed: "+err.Error())
 				return
@@ -397,6 +411,29 @@ func uploadAssetToRelease(data []byte, filename, kind string) (string, error) {
 		return "", err
 	}
 	url, _, err := c.UploadAPK(repo.Name, tag, filename, data)
+	return url, err
+}
+
+func uploadAssetFileToRelease(path, filename, kind string) (string, error) {
+	c := storage.NewFromEnv()
+	if c.Token == "" {
+		return "", fmt.Errorf("GITHUB_STORAGE_TOKEN not set")
+	}
+	fi, err := os.Stat(path)
+	if err != nil {
+		return "", err
+	}
+	f, err := os.Open(path)
+	if err != nil {
+		return "", err
+	}
+	defer f.Close()
+	tag := kind + "-" + time.Now().UTC().Format("20060102-150405")
+	repo, err := c.PickRepo(fi.Size())
+	if err != nil {
+		return "", err
+	}
+	url, _, err := c.UploadAPKReader(repo.Name, tag, filename, f, fi.Size())
 	return url, err
 }
 

@@ -5,3 +5,7 @@ firebase-service-account.json
 
 secrets/
 *.token
+
+secrets/
+*.token
+github.token

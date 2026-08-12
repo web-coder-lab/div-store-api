@@ -148,8 +148,8 @@ func SubmitAppFull(w http.ResponseWriter, r *http.Request) {
 
 	ct := r.Header.Get("Content-Type")
 	if strings.HasPrefix(ct, "multipart/") {
-		if err := r.ParseMultipartForm(512 << 20); err != nil {
-			writeErr(w, 400, "Invalid multipart (max 512MB)")
+		if err := r.ParseMultipartForm(8 << 20); err != nil {
+			writeErr(w, 400, "Invalid multipart form")
 			return
 		}
 		appName = strings.TrimSpace(r.FormValue("appName"))

@@ -752,8 +752,8 @@ func UploadAPK(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, 503, "GITHUB_STORAGE_TOKEN required")
 		return
 	}
-	if err := r.ParseMultipartForm(512 << 20); err != nil {
-		writeErr(w, 400, "Invalid multipart (max 512MB)")
+	if err := r.ParseMultipartForm(8 << 20); err != nil {
+		writeErr(w, 400, "Invalid multipart form")
 		return
 	}
 	file, hdr, err := r.FormFile("file")

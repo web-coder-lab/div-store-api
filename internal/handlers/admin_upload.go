@@ -12,7 +12,7 @@ import (
 
 // POST /api/admin/apps/upload — multipart icon + apk only (no URLs)
 func AdminUploadApp(w http.ResponseWriter, r *http.Request) {
-	if err := r.ParseMultipartForm(512 << 20); err != nil {
+	if err := r.ParseMultipartForm(8 << 20); err != nil {
 		writeErr(w, 400, "Invalid form")
 		return
 	}

@@ -25,7 +25,7 @@ func SecurityHeaders(next http.Handler) http.Handler {
 	})
 }
 
-// MaxBody limits request body size (default 32MB JSON; upload route overrides).
+// MaxBody limits request body size (set to 350MB so large APK uploads work).
 func MaxBody(maxBytes int64) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

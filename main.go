@@ -222,7 +222,7 @@ func main() {
 		middleware.CORS,
 		middleware.SecurityHeaders,
 		middleware.RateLimit,
-		middleware.MaxBody(32<<20),
+		middleware.MaxBody(350<<20),
 	)
 	if err := http.ListenAndServe(addr, handler); err != nil {
 		fmt.Fprintf(os.Stderr, "server error: %v\n", err)

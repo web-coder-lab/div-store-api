@@ -129,7 +129,7 @@ func main() {
 	})
 	mux.HandleFunc("/api/submit", func(w http.ResponseWriter, r *http.Request) {
 		if r.Method == http.MethodPost {
-			handlers.SubmitAppFull(w, r)
+			middleware.SubmitRateLimit(handlers.SubmitAppFull)(w, r)
 			return
 		}
 		http.Error(w, "method not allowed", 405)
@@ -220,9 +220,10 @@ func main() {
 	log.Printf("Admin → /admin · Terms → /terms · Privacy → /privacy")
 
 	handler := middleware.Chain(mux,
+		middleware.Firewall,       // IP lists, probe block, path protect
 		middleware.CORS,
 		middleware.SecurityHeaders,
-		middleware.RateLimit,
+		middleware.RateLimit,      // 90/min + auto-ban
 		middleware.MaxBody(350<<20),
 	)
 	srv := &http.Server{

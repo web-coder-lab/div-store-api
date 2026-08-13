@@ -3,13 +3,13 @@
 <head>
 <meta charset="utf-8"/>
 <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover"/>
-<meta name="theme-color" content="#050816"/>
+<meta name="theme-color" content="#0B0D10"/>
 <title>Div Store Admin</title>
 <style>
 :root{
-  --bg:#050816;--s:#0B1020;--s2:#11182A;--bd:rgba(120,140,255,.16);
-  --p:#3EDCFF;--sec:#8B5CFF;--t:#F2F6FF;--d:#98A2B3;
-  --ok:#34d399;--bad:#f87171;--nav:56px;--safe:env(safe-area-inset-bottom,0px);
+  --bg:#F7F8FA;--s:#FFFFFF;--s2:#F1F3F5;--bd:#E5E7EB;
+  --p:#0B0D10;--sec:#17191C;--t:#17191C;--d:#6B7280;
+  --ok:#16A34A;--bad:#DC2626;--nav:56px;--safe:env(safe-area-inset-bottom,0px);
 }
 *{box-sizing:border-box;-webkit-tap-highlight-color:transparent;margin:0}
 body{font-family:system-ui,-apple-system,sans-serif;background:var(--bg);color:var(--t);
@@ -19,9 +19,9 @@ input,button,select,textarea{font:inherit}
 input,select,textarea{width:100%;padding:12px 14px;border-radius:12px;border:1px solid var(--bd);
   background:var(--s);color:var(--t);margin-top:6px}
 button{border:0;border-radius:12px;padding:12px 16px;font-weight:700;cursor:pointer;
-  background:linear-gradient(135deg,var(--p),var(--sec));color:#041018}
+  background:var(--p);color:#FFFFFF}
 button.g{background:var(--s2);color:var(--t);border:1px solid var(--bd)}
-button.d{background:#3b1212;color:#fecaca}
+button.d{background:#FEE2E2;color:#991B1B}
 button.sm{padding:7px 10px;font-size:12px;border-radius:8px}
 label{font-size:11px;color:var(--d);display:block;margin-top:12px}
 .err{color:var(--bad);font-size:13px;margin-top:10px;white-space:pre-wrap}
@@ -30,14 +30,14 @@ label{font-size:11px;color:var(--d);display:block;margin-top:12px}
 .brand{text-align:center;margin-bottom:24px}
 .brand .ic{width:64px;height:64px;margin:0 auto 10px;border-radius:16px;border:1px solid var(--bd);
   display:grid;place-items:center;font-size:26px;font-weight:900;
-  background:linear-gradient(135deg,var(--p),var(--sec));-webkit-background-clip:text;color:transparent}
+  color:var(--t);border:2px solid var(--p)}
 .brand h1{font-size:22px;letter-spacing:.06em}
 .brand p{color:var(--d);font-size:13px;margin-top:4px}
 #app{display:none;flex-direction:column;min-height:100dvh}
 #app.on{display:flex}
 .head{padding:12px 16px;background:var(--s);border-bottom:1px solid var(--bd);
   display:flex;justify-content:space-between;align-items:center;gap:8px}
-.head b{background:linear-gradient(90deg,var(--p),var(--sec));-webkit-background-clip:text;color:transparent}
+.head b{color:var(--t)}
 main{flex:1;overflow:auto;padding:12px 12px calc(var(--nav) + var(--safe) + 14px)}
 .nav{position:fixed;left:50%;transform:translateX(-50%);bottom:0;width:100%;max-width:430px;
   height:calc(var(--nav) + var(--safe));padding-bottom:var(--safe);

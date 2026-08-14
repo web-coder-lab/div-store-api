@@ -333,10 +333,60 @@ func ipInList(ip string, list []string) bool {
 	return false
 }
 
-// ─── Admin auth ─────────────────────────────────────────────────────
+// ─── Admin auth + IP lock ───────────────────────────────────────────
+
+// adminIPAllowed: ADMIN_IP_ALLOWLIST must be set; only listed IPs/CIDRs pass.
+// If env empty → deny all admin (force config). Use "0.0.0.0/0" only for emergency open.
+func adminIPAllowed(ip string) bool {
+	list := parseIPList(os.Getenv("ADMIN_IP_ALLOWLIST"))
+	if len(list) == 0 {
+		return false
+	}
+	return ipInList(ip, list)
+}
+
+// RequireAdminIP blocks /admin HTML and admin APIs from foreign IPs.
+func RequireAdminIP(next http.HandlerFunc) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		ip := clientIP(r)
+		if !adminIPAllowed(ip) {
+			writeJSON(w, 403, `{"error":"admin_ip_blocked","ip":"`+ip+`"}`)
+			return
+		}
+		next(w, r)
+	}
+}
+
+// ServeAdminHTML only from allowlisted IP.
+func ServeAdminHTML(w http.ResponseWriter, r *http.Request) {
+	ip := clientIP(r)
+	if !adminIPAllowed(ip) {
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		w.WriteHeader(403)
+		_, _ = w.Write([]byte(`<!DOCTYPE html><html><body style="font-family:system-ui;background:#F7F8FA;color:#17191C;padding:40px;text-align:center">
+<h2>403 — Admin blocked</h2>
+<p>Your IP is not allowlisted.</p>
+<p style="color:#6B7280;font-size:13px">IP: ` + ip + `</p>
+<p style="color:#6B7280;font-size:12px">Open <code>/api/my-ip</code> from your phone/PC and add that IP to <code>ADMIN_IP_ALLOWLIST</code> on Render.</p>
+</body></html>`))
+		return
+	}
+	http.ServeFile(w, r, "admin/index.html")
+}
 
 func RequireAdmin(next http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
+		ip := clientIP(r)
+		// 1) IP lock first
+		if !adminIPAllowed(ip) {
+			rlMu.Lock()
+			v := getVisitor(rlMap, ip, time.Now())
+			strikeAndMaybeBan(v, time.Now())
+			rlMu.Unlock()
+			writeJSON(w, 403, `{"error":"admin_ip_blocked","ip":"`+ip+`"}`)
+			return
+		}
+		// 2) API key
 		key := os.Getenv("ADMIN_API_KEY")
 		if key == "" {
 			key = "div-store-admin"
@@ -347,8 +397,6 @@ func RequireAdmin(next http.HandlerFunc) http.HandlerFunc {
 			token = r.Header.Get("X-Api-Key")
 		}
 		if subtle.ConstantTimeCompare([]byte(token), []byte(key)) != 1 {
-			// failed admin auth counts as strike
-			ip := clientIP(r)
 			rlMu.Lock()
 			v := getVisitor(rlMap, ip, time.Now())
 			strikeAndMaybeBan(v, time.Now())
@@ -358,4 +406,11 @@ func RequireAdmin(next http.HandlerFunc) http.HandlerFunc {
 		}
 		AdminRateLimit(next)(w, r)
 	}
+}
+
+// MyIP public helper so owner can copy IP into ADMIN_IP_ALLOWLIST.
+func MyIP(w http.ResponseWriter, r *http.Request) {
+	ip := clientIP(r)
+	w.Header().Set("Content-Type", "application/json")
+	_, _ = w.Write([]byte(`{"ip":"` + ip + `"}`))
 }

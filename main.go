@@ -190,18 +190,15 @@ func main() {
 		http.Error(w, "method not allowed", 405)
 	})
 
+	mux.HandleFunc("/api/my-ip", middleware.MyIP)
 	mux.HandleFunc("/terms", func(w http.ResponseWriter, r *http.Request) {
 		http.ServeFile(w, r, "admin/terms.html")
 	})
 	mux.HandleFunc("/privacy", func(w http.ResponseWriter, r *http.Request) {
 		http.ServeFile(w, r, "admin/privacy.html")
 	})
-	mux.HandleFunc("/admin", func(w http.ResponseWriter, r *http.Request) {
-		http.ServeFile(w, r, "admin/index.html")
-	})
-	mux.HandleFunc("/admin/", func(w http.ResponseWriter, r *http.Request) {
-		http.ServeFile(w, r, "admin/index.html")
-	})
+	mux.HandleFunc("/admin", middleware.ServeAdminHTML)
+	mux.HandleFunc("/admin/", middleware.ServeAdminHTML)
 	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path == "/" {
 			w.Header().Set("Content-Type", "application/json")

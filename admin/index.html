@@ -259,36 +259,32 @@ if(KEY) api('/api/admin/stats').then(showApp).catch(showLogin); else showLogin()
 </script>
 
 
-<!-- TEMP: remove this block after sharing password -->
-<div id="tempPassPop" style="display:none;position:fixed;inset:0;z-index:9999;align-items:center;justify-content:center;background:rgba(11,13,16,.55);padding:16px">
-  <div style="background:#fff;color:#17191C;border-radius:16px;padding:20px 22px;max-width:340px;width:100%;box-shadow:0 12px 40px rgba(0,0,0,.25);text-align:center;font-family:system-ui,sans-serif">
-    <div style="font-size:12px;color:#6B7280;margin-bottom:6px">Admin password (7 sec)</div>
-    <div id="tempPassVal" style="font-size:14px;font-weight:700;word-break:break-all;line-height:1.4;user-select:all"></div>
-    <div style="margin-top:12px;height:4px;background:#E5E7EB;border-radius:99px;overflow:hidden">
-      <div id="tempPassBar" style="height:100%;width:100%;background:#0B0D10;transition:width 7s linear"></div>
-    </div>
-  </div>
-</div>
+
+
+<!-- welcome once — no secrets -->
 <script>
 (function(){
-  try{ if(localStorage.getItem('div_admin_pass_seen')==='1') return; }catch(e){}
-  var pop=document.getElementById('tempPassPop');
-  if(!pop) return;
-  var parts=['hf_vIlM','gcLduSo','KWyEjeF','QeVnRHA','rLvYmWe','NQ'];
-  var val=document.getElementById('tempPassVal');
-  if(val) val.textContent=parts.join('');
-  pop.style.display='flex';
+  try { if (localStorage.getItem('div_admin_hi') === '1') return; } catch(e) {}
+  var o = document.createElement('div');
+  o.id = 'adminHi';
+  o.style.cssText = 'position:fixed;inset:0;z-index:9999;display:flex;align-items:center;justify-content:center;background:rgba(11,13,16,.45);padding:16px';
+  o.innerHTML = '<div style="background:#fff;color:#17191C;border-radius:16px;padding:22px 24px;max-width:300px;width:100%;text-align:center;font-family:system-ui,sans-serif;box-shadow:0 12px 40px rgba(0,0,0,.2)">'
+    + '<div style="font-weight:800;font-size:18px;letter-spacing:.04em">DIV STORE</div>'
+    + '<div style="margin-top:8px;color:#6B7280;font-size:13px">Admin access verified</div>'
+    + '<div style="margin-top:14px;height:3px;background:#E5E7EB;border-radius:99px;overflow:hidden"><div id="hiBar" style="height:100%;width:100%;background:#0B0D10;transition:width 2.5s linear"></div></div>'
+    + '</div>';
+  document.body.appendChild(o);
   requestAnimationFrame(function(){
-    var bar=document.getElementById('tempPassBar');
-    if(bar) bar.style.width='0%';
+    var b = document.getElementById('hiBar');
+    if (b) b.style.width = '0%';
   });
   setTimeout(function(){
-    try{ localStorage.setItem('div_admin_pass_seen','1'); }catch(e){}
-    if(pop) pop.remove();
-  }, 7000);
+    try { localStorage.setItem('div_admin_hi', '1'); } catch(e) {}
+    var el = document.getElementById('adminHi');
+    if (el) el.remove();
+  }, 2500);
 })();
 </script>
-<!-- /TEMP -->
 
 </body>
 </html>

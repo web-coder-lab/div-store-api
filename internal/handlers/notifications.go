@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
 	"strings"
@@ -16,7 +17,6 @@ func ListNotifications(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, 500, err.Error())
 		return
 	}
-	// reverse chronological
 	for i, j := 0, len(rows)-1; i < j; i, j = i+1, j-1 {
 		rows[i], rows[j] = rows[j], rows[i]
 	}
@@ -43,7 +43,6 @@ func AdminCreateNotification(w http.ResponseWriter, r *http.Request) {
 	}
 	idStr, idNum, err := db().NextTypedID(r.Context(), "notifications", "ntf_")
 	if err != nil {
-		// fallback counter name
 		n, e2 := db().NextID(r.Context(), "notifications")
 		if e2 != nil {
 			writeErr(w, 500, err.Error())
@@ -59,7 +58,6 @@ func AdminCreateNotification(w http.ResponseWriter, r *http.Request) {
 		"createdAt": now,
 	}
 	if err := db().UpsertByStringID(r.Context(), "notifications", idStr, row); err != nil {
-		// try append style
 		rows, _ := db().ReadAll(r.Context(), "notifications")
 		rows = append(rows, row)
 		if err2 := db().WriteAll(r.Context(), "notifications", rows, "notify "+idStr); err2 != nil {
@@ -68,4 +66,33 @@ func AdminCreateNotification(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	writeJSON(w, 201, row)
+}
+
+// pushStoreNotification — Phase 14: approve/reject → Alerts feed
+func pushStoreNotification(ctx context.Context, title, message, nType, audienceEmail string) {
+	g := db()
+	if g == nil || !g.Enabled() {
+		return
+	}
+	idStr, idNum, err := g.NextTypedID(ctx, "notifications", "ntf_")
+	if err != nil {
+		n, e2 := g.NextID(ctx, "notifications")
+		if e2 != nil {
+			return
+		}
+		idStr = ghdb.FormatID("ntf_", n)
+		idNum = n
+	}
+	now := time.Now().UTC().Format(time.RFC3339)
+	row := map[string]any{
+		"id": idStr, "idNum": idNum, "type": nType,
+		"title": title, "message": message, "body": message,
+		"audienceEmail": audienceEmail,
+		"createdAt":     now,
+	}
+	if err := g.UpsertByStringID(ctx, "notifications", idStr, row); err != nil {
+		rows, _ := g.ReadAll(ctx, "notifications")
+		rows = append(rows, row)
+		_ = g.WriteAll(ctx, "notifications", rows, "notify "+idStr)
+	}
 }

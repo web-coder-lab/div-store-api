@@ -599,6 +599,14 @@ func ApproveSubmission(w http.ResponseWriter, r *http.Request) {
 	sub["reviewedAt"] = time.Now().UTC().Format(time.RFC3339)
 	sub["approvedApkId"] = apkID
 	_ = db().UpsertByStringID(r.Context(), "submissions", idStr, sub)
+	appName := asString(sub["appName"])
+	devEmail := asString(sub["contactEmail"])
+	pushStoreNotification(r.Context(),
+		"New app approved",
+		appName+" is now live on DIV STORE.",
+		"app_approved",
+		devEmail,
+	)
 	writeJSON(w, 200, map[string]any{
 		"submission": "approved", "requestId": idStr, "apkId": apkID, "app": app,
 	})
@@ -620,6 +628,19 @@ func RejectSubmission(w http.ResponseWriter, r *http.Request) {
 	sub["reviewNote"] = body.Note
 	sub["reviewedAt"] = time.Now().UTC().Format(time.RFC3339)
 	_ = db().UpsertByStringID(r.Context(), "submissions", idStr, sub)
+	appName := asString(sub["appName"])
+	devEmail := asString(sub["contactEmail"])
+	note := strings.TrimSpace(body.Note)
+	msg := appName + " was not approved."
+	if note != "" {
+		msg = msg + " Note: " + note
+	}
+	pushStoreNotification(r.Context(),
+		"Submission update",
+		msg,
+		"app_rejected",
+		devEmail,
+	)
 	writeJSON(w, 200, map[string]any{"ok": true, "requestId": idStr, "status": "rejected"})
 }
 

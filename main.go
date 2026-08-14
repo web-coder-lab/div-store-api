@@ -200,12 +200,8 @@ func main() {
 	mux.HandleFunc("/admin", middleware.ServeAdminHTML)
 	mux.HandleFunc("/admin/", middleware.ServeAdminHTML)
 	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path == "/" {
-			w.Header().Set("Content-Type", "application/json")
-			w.Write([]byte(`{"name":"Div Store API","health":"/api/health"}`))
-			return
-		}
-		http.NotFound(w, r)
+		// Root + unknown paths: stealth 404 (no service name, no routes leak)
+		middleware.Stealth404(w, r)
 	})
 
 	port := os.Getenv("PORT")

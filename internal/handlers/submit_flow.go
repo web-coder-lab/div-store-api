@@ -530,3 +530,31 @@ func UpdateDeveloperProfile(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, 404, "Developer not found")
 	}
 }
+
+// GET /api/submissions?email= — developer's own submissions (Phase 5)
+func MySubmissions(w http.ResponseWriter, r *http.Request) {
+	email := strings.ToLower(strings.TrimSpace(r.URL.Query().Get("email")))
+	if email == "" {
+		writeErr(w, 400, "email required")
+		return
+	}
+	g := db()
+	if g == nil || !g.Enabled() {
+		writeErr(w, 503, "Database not ready")
+		return
+	}
+	rows, err := g.ReadAll(r.Context(), "submissions")
+	if err != nil {
+		writeErr(w, 500, err.Error())
+		return
+	}
+	out := make([]map[string]any, 0)
+	for _, s := range rows {
+		ce := strings.ToLower(strings.TrimSpace(asString(s["contactEmail"])))
+		de := strings.ToLower(strings.TrimSpace(asString(s["developerEmail"])))
+		if ce == email || de == email {
+			out = append(out, s)
+		}
+	}
+	writeJSON(w, 200, map[string]any{"ok": true, "submissions": out, "count": len(out)})
+}

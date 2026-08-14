@@ -558,3 +558,68 @@ func MySubmissions(w http.ResponseWriter, r *http.Request) {
 	}
 	writeJSON(w, 200, map[string]any{"ok": true, "submissions": out, "count": len(out)})
 }
+
+// POST /api/report — user reports an app (Phase 15)
+func ReportApp(w http.ResponseWriter, r *http.Request) {
+	g := db()
+	if g == nil || !g.Enabled() {
+		writeErr(w, 503, "Database not ready")
+		return
+	}
+	var appID, appName, reason, email string
+	ct := r.Header.Get("Content-Type")
+	if strings.HasPrefix(ct, "application/json") {
+		var body map[string]any
+		_ = json.NewDecoder(r.Body).Decode(&body)
+		appID = strings.TrimSpace(asString(body["appId"]))
+		appName = strings.TrimSpace(asString(body["appName"]))
+		reason = strings.TrimSpace(asString(body["reason"]))
+		email = strings.ToLower(strings.TrimSpace(asString(body["email"])))
+	} else {
+		_ = r.ParseForm()
+		appID = strings.TrimSpace(r.FormValue("appId"))
+		appName = strings.TrimSpace(r.FormValue("appName"))
+		reason = strings.TrimSpace(r.FormValue("reason"))
+		email = strings.ToLower(strings.TrimSpace(r.FormValue("email")))
+	}
+	if appID == "" && appName == "" {
+		writeErr(w, 400, "appId or appName required")
+		return
+	}
+	if reason == "" {
+		writeErr(w, 400, "reason required")
+		return
+	}
+	idStr, idNum, err := g.NextTypedID(r.Context(), "reports", "rpt_")
+	if err != nil {
+		n, e2 := g.NextID(r.Context(), "reports")
+		if e2 != nil {
+			writeErr(w, 500, err.Error())
+			return
+		}
+		idStr = "rpt_" + fmt.Sprintf("%d", n)
+		idNum = n
+	}
+	now := time.Now().UTC().Format(time.RFC3339)
+	row := map[string]any{
+		"id": idStr, "idNum": idNum, "type": "app_report",
+		"appId": appID, "appName": appName, "reason": reason,
+		"email": email, "status": "open", "createdAt": now,
+	}
+	if err := g.UpsertByStringID(r.Context(), "reports", idStr, row); err != nil {
+		rows, _ := g.ReadAll(r.Context(), "reports")
+		rows = append(rows, row)
+		if err2 := g.WriteAll(r.Context(), "reports", rows, "report "+idStr); err2 != nil {
+			writeErr(w, 500, err2.Error())
+			return
+		}
+	}
+	// Optional store-wide alert for admin visibility in feed
+	pushStoreNotification(r.Context(),
+		"App reported",
+		"Report on "+appName+": "+reason,
+		"app_report",
+		"",
+	)
+	writeJSON(w, 201, map[string]any{"ok": true, "id": idStr, "message": "Thanks — we received your report."})
+}

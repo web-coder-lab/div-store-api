@@ -134,6 +134,13 @@ func main() {
 		}
 		http.Error(w, "method not allowed", 405)
 	})
+	mux.HandleFunc("/api/report", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodPost {
+			middleware.SubmitRateLimit(handlers.ReportApp)(w, r)
+			return
+		}
+		http.Error(w, "method not allowed", 405)
+	})
 	mux.HandleFunc("/api/submit", func(w http.ResponseWriter, r *http.Request) {
 		if r.Method == http.MethodPost {
 			middleware.SubmitRateLimit(handlers.SubmitAppFull)(w, r)

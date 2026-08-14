@@ -270,16 +270,23 @@ func SubmitAppFull(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	devs, _ := g.ReadAll(r.Context(), "developer_profiles")
+	// Phase 4: hard gate — only registered Studio emails may submit
+	devs, errDevs := g.ReadAll(r.Context(), "developer_profiles")
+	if errDevs != nil {
+		writeErr(w, 500, "Could not verify developer account")
+		return
+	}
 	var dev map[string]any
 	for _, d := range devs {
-		if strings.EqualFold(asString(d["email"]), devEmail) || strings.EqualFold(asString(d["contactEmail"]), devEmail) {
+		em := strings.ToLower(strings.TrimSpace(asString(d["email"])))
+		ce := strings.ToLower(strings.TrimSpace(asString(d["contactEmail"])))
+		if em == devEmail || ce == devEmail {
 			dev = d
 			break
 		}
 	}
 	if dev == nil {
-		writeErr(w, 403, "Create Developer Studio account before uploading APK")
+		writeErr(w, 403, "developer_not_registered: Create Developer Studio account before uploading APK")
 		return
 	}
 

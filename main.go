@@ -35,6 +35,55 @@ func main() {
 	})
 	mux.HandleFunc("/api/admin/notifications", middleware.RequireAdmin(handlers.AdminCreateNotification))
 	mux.HandleFunc("/api/health", handlers.Health)
+
+	mux.HandleFunc("/api/routes", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.Write([]byte(`{
+  "server": "div-store-api",
+  "base": "https://div-store-api.onrender.com",
+  "routes": {
+    "public": [
+      {"method":"GET","path":"/api/health"},
+      {"method":"GET","path":"/api/routes"},
+      {"method":"GET","path":"/api/my-ip"},
+      {"method":"GET","path":"/api/apps","query":"category,search,featured"},
+      {"method":"GET","path":"/api/apps/{id}"},
+      {"method":"POST","path":"/api/apps/{id}/download"},
+      {"method":"GET","path":"/api/categories"},
+      {"method":"GET","path":"/api/notifications"},
+      {"method":"POST","path":"/api/developers/register"},
+      {"method":"GET","path":"/api/developers/by-email"},
+      {"method":"POST","path":"/api/developers/update"},
+      {"method":"GET","path":"/api/developers"},
+      {"method":"GET","path":"/api/developers/{slug}"},
+      {"method":"GET","path":"/api/submissions","query":"email"},
+      {"method":"POST","path":"/api/submit"},
+      {"method":"POST","path":"/api/report"},
+      {"method":"GET","path":"/terms"},
+      {"method":"GET","path":"/privacy"}
+    ],
+    "admin": [
+      {"method":"GET","path":"/admin","note":"IP allowlist + HTML"},
+      {"method":"GET","path":"/api/admin/stats"},
+      {"method":"GET|POST","path":"/api/admin/apps"},
+      {"method":"PUT|DELETE","path":"/api/admin/apps/{id}"},
+      {"method":"POST","path":"/api/admin/apps/upload"},
+      {"method":"POST","path":"/api/admin/upload-apk"},
+      {"method":"GET","path":"/api/admin/submissions"},
+      {"method":"POST","path":"/api/admin/submissions/{id}/approve"},
+      {"method":"POST","path":"/api/admin/submissions/{id}/reject"},
+      {"method":"POST","path":"/api/admin/notifications"},
+      {"method":"GET","path":"/api/admin/settings"},
+      {"method":"PUT","path":"/api/admin/settings/{key}"},
+      {"method":"POST","path":"/api/categories"},
+      {"method":"DELETE","path":"/api/categories/{id}"},
+      {"method":"GET","path":"/api/admin/storage"},
+      {"method":"POST","path":"/api/admin/sync-data"}
+    ]
+  }
+}`))
+	})
+
 	mux.HandleFunc("/api/apps", func(w http.ResponseWriter, r *http.Request) {
 		if r.Method == http.MethodGet {
 			handlers.ListApps(w, r)

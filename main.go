@@ -262,30 +262,8 @@ func main() {
 	})
 	mux.HandleFunc("/admin", middleware.ServeAdminHTML)
 	mux.HandleFunc("/admin/", middleware.ServeAdminHTML)
-	// Public website (DIV STORE)
-	webFS := http.FileServer(http.Dir("web"))
-	mux.Handle("/assets/", webFS)
+	// API-only root — no public frontend
 	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
-		path := r.URL.Path
-		if path == "/" || path == "/index.html" {
-			http.ServeFile(w, r, "web/index.html")
-			return
-		}
-		// Known site pages
-		for _, page := range []string{"/apps.html", "/app.html", "/studio.html", "/about.html"} {
-			if path == page {
-				http.ServeFile(w, r, "web"+page)
-				return
-			}
-		}
-		// Try file under web/ (no directory listing abuse)
-		if !strings.Contains(path, "..") {
-			fp := "web" + path
-			if st, err := os.Stat(fp); err == nil && !st.IsDir() {
-				http.ServeFile(w, r, fp)
-				return
-			}
-		}
 		middleware.Stealth404(w, r)
 	})
 

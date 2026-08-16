@@ -1,0 +1,122 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8"/>
+  <meta name="viewport" content="width=device-width,initial-scale=1"/>
+  <meta name="description" content="DIV STORE — find and install Android apps. Developers submit, we review, you download."/>
+  <title>DIV STORE — Android apps, simply</title>
+  <link rel="stylesheet" href="/assets/style.css"/>
+</head>
+<body>
+<header class="nav"><div class="container nav-inner">
+  <a class="brand" href="/"><span class="logo">DS</span><span>DIV STORE</span></a>
+  <nav class="nav-links">
+    <a href="/">Home</a>
+    <a href="/apps.html">Apps</a>
+    <a href="/studio.html">Studio</a>
+    <a href="/about.html">About</a>
+    <a class="btn" href="/apps.html" style="padding:8px 14px">Browse</a>
+  </nav>
+</div></header>
+<main>
+  <div class="container hero">
+    <div>
+      <span class="badge">Android catalog</span>
+      <h1>Find apps.<br/>Install with clarity.</h1>
+      <p>DIV STORE is a clean black-and-white app store. Browse categories, open details, and download APKs with real progress. Developers register in Studio, submit once, and wait for approval.</p>
+      <div class="hero-actions">
+        <a class="btn" href="/apps.html">Browse apps</a>
+        <a class="btn ghost" href="/studio.html">I’m a developer</a>
+      </div>
+    </div>
+    <div class="hero-card">
+      <p style="font-size:13px;color:var(--muted);margin-bottom:8px">Live from the store</p>
+      <div class="stat-row">
+        <div class="stat"><b id="statApps">—</b><span>Apps</span></div>
+        <div class="stat"><b id="statCats">—</b><span>Categories</span></div>
+        <div class="stat"><b id="statFeat">—</b><span>Featured</span></div>
+      </div>
+      <p style="font-size:12px;color:var(--muted);margin-top:14px">Same database the Android app uses. One store, web + mobile.</p>
+    </div>
+  </div>
+
+  <section class="container">
+    <div class="section-head">
+      <div>
+        <h2>Featured</h2>
+        <p>Highlighted by the store team</p>
+      </div>
+      <a href="/apps.html">See all →</a>
+    </div>
+    <div id="featured" class="featured-row"><div class="state"><div class="spinner"></div>Loading…</div></div>
+  </section>
+
+  <section class="container">
+    <div class="section-head">
+      <div>
+        <h2>How it works</h2>
+        <p>Three steps. No noise.</p>
+      </div>
+    </div>
+    <div class="steps">
+      <div class="step"><div class="n">1</div><h3>Browse</h3><p>Open categories like Games, Tools, or All. Search by name when you know what you want.</p></div>
+      <div class="step"><div class="n">2</div><h3>Check details</h3><p>Read the description, version, and developer. Share or report if something looks wrong.</p></div>
+      <div class="step"><div class="n">3</div><h3>Install</h3><p>Download the APK from the official catalog. On phone, use the DIV STORE app for install progress.</p></div>
+    </div>
+  </section>
+
+  <section class="container">
+    <div class="section-head">
+      <div>
+        <h2>Latest apps</h2>
+        <p>Recently approved builds</p>
+      </div>
+    </div>
+    <div id="latest" class="grid"><div class="state"><div class="spinner"></div></div></div>
+  </section>
+
+  <section class="container">
+    <div class="hero-card" style="display:flex;flex-wrap:wrap;gap:16px;align-items:center;justify-content:space-between">
+      <div>
+        <h2 style="font-size:1.25rem">Publish your app</h2>
+        <p style="color:var(--muted);margin-top:6px;max-width:40ch">Register in Developer Studio, unlock APK upload, track submissions until approval.</p>
+      </div>
+      <a class="btn" href="/studio.html">Open Studio</a>
+    </div>
+  </section>
+</main>
+<footer><div class="container footer-grid">
+  <div><strong>DIV STORE</strong><span>Android apps, simple and safe. Black &amp; white design.</span></div>
+  <div><strong>Explore</strong><a href="/apps.html">All apps</a><a href="/studio.html">Developer Studio</a><a href="/about.html">About</a></div>
+  <div><strong>Legal</strong><a href="/privacy">Privacy</a><a href="/terms">Terms</a></div>
+  <div><strong>Support</strong><a href="mailto:workn8312@gmail.com">workn8312@gmail.com</a></div>
+</div></footer>
+<script src="/assets/app.js"></script>
+<script>
+(async () => {
+  const featEl = document.getElementById('featured');
+  const latestEl = document.getElementById('latest');
+  try {
+    const [appsData, catsData, featData] = await Promise.all([
+      DivStore.api('/api/apps'),
+      DivStore.api('/api/categories'),
+      DivStore.api('/api/apps?featured=true').catch(() => []),
+    ]);
+    const apps = DivStore.appsFrom(appsData);
+    const cats = DivStore.catsFrom(catsData);
+    const feat = DivStore.appsFrom(featData);
+    document.getElementById('statApps').textContent = apps.length;
+    document.getElementById('statCats').textContent = cats.length;
+    document.getElementById('statFeat').textContent = feat.length;
+    if (feat.length) featEl.innerHTML = feat.map(DivStore.featCard).join('');
+    else featEl.innerHTML = '<div class="state">No featured apps yet — browse all apps.</div>';
+    const latest = apps.slice(0, 12);
+    latestEl.innerHTML = latest.length ? latest.map(DivStore.appCard).join('') : '<div class="state">No apps in the catalog yet.</div>';
+  } catch (e) {
+    featEl.innerHTML = '<div class="state">Could not load store data. The server may be waking up — refresh in a minute.</div>';
+    latestEl.innerHTML = '<div class="state">' + DivStore.escapeHtml(e.message) + '</div>';
+  }
+})();
+</script>
+</body>
+</html>

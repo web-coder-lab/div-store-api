@@ -1,0 +1,121 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8"/>
+  <meta name="viewport" content="width=device-width,initial-scale=1"/>
+  <title>App — DIV STORE</title>
+  <link rel="stylesheet" href="/assets/style.css"/>
+</head>
+<body>
+<header class="nav"><div class="container nav-inner">
+  <a class="brand" href="/"><span class="logo">DS</span><span>DIV STORE</span></a>
+  <nav class="nav-links">
+    <a href="/">Home</a>
+    <a href="/apps.html">Apps</a>
+    <a href="/studio.html">Studio</a>
+    <a href="/about.html">About</a>
+    <a class="btn" href="/apps.html" style="padding:8px 14px">Browse</a>
+  </nav>
+</div></header>
+<main class="container" id="root"><div class="state"><div class="spinner"></div>Loading…</div></main>
+<footer><div class="container footer-grid">
+  <div><strong>DIV STORE</strong><span>Android apps, simple and safe. Black &amp; white design.</span></div>
+  <div><strong>Explore</strong><a href="/apps.html">All apps</a><a href="/studio.html">Developer Studio</a><a href="/about.html">About</a></div>
+  <div><strong>Legal</strong><a href="/privacy">Privacy</a><a href="/terms">Terms</a></div>
+  <div><strong>Support</strong><a href="mailto:workn8312@gmail.com">workn8312@gmail.com</a></div>
+</div></footer>
+<script src="/assets/app.js"></script>
+<script>
+const id = new URLSearchParams(location.search).get('id');
+const root = document.getElementById('root');
+if (!id) {
+  root.innerHTML = '<div class="state">Missing app id. <a href="/apps.html">Back to apps</a></div>';
+} else {
+  (async () => {
+    try {
+      const app = await DivStore.api('/api/apps/' + encodeURIComponent(id));
+      document.title = (app.name || 'App') + ' — DIV STORE';
+      const cat = app.categoryName || (app.categoryNames || []).join(', ');
+      const meta = [app.version && ('v' + app.version), app.size, app.packageName].filter(Boolean).join(' · ');
+      root.innerHTML = `
+        <div class="detail-top">
+          ${DivStore.iconHtml(app, 'detail-icon')}
+          <div>
+            <h1 style="font-size:1.75rem;letter-spacing:-.02em">${DivStore.escapeHtml(app.name)}</h1>
+            <p style="color:var(--muted);margin-top:4px">${DivStore.escapeHtml(cat)}</p>
+            <p style="color:var(--muted);font-size:13px;margin-top:6px">${DivStore.escapeHtml(meta)}</p>
+            ${app.developerName ? '<p style="margin-top:6px;font-size:13px">By ' + DivStore.escapeHtml(app.developerName) + '</p>' : ''}
+          </div>
+          <div style="display:flex;flex-direction:column;gap:8px;min-width:160px">
+            <a class="btn" href="/apps.html">Back to list</a>
+            <button class="btn ghost" type="button" id="shareBtn">Share</button>
+          </div>
+        </div>
+        <section>
+          <h2 style="margin-bottom:8px">About</h2>
+          <p style="color:var(--muted);max-width:60ch;white-space:pre-wrap">${DivStore.escapeHtml(app.description || 'No description.')}</p>
+        </section>
+        <section>
+          <h2 style="margin-bottom:8px">Install</h2>
+          <p style="color:var(--muted);font-size:14px;max-width:50ch;margin-bottom:12px">For the best install experience (real download %), use the DIV STORE Android app. On the web you can open the APK link if available.</p>
+          <button class="btn" type="button" id="dlBtn">Get download link</button>
+          <p class="msg" id="dlMsg"></p>
+        </section>
+        <section>
+          <h2 style="margin-bottom:8px">Report</h2>
+          <div class="form-card">
+            <label>Why are you reporting this app?</label>
+            <textarea id="reason" rows="3" placeholder="Spam, malware concern, wrong listing…"></textarea>
+            <button class="btn block" type="button" id="reportBtn" style="margin-top:12px">Send report</button>
+            <p class="msg" id="reportMsg"></p>
+          </div>
+        </section>`;
+      document.getElementById('shareBtn').onclick = () => {
+        const text = app.name + '\n' + (app.description || '').slice(0, 120) + '\nGet it on DIV STORE';
+        if (navigator.share) navigator.share({ title: app.name, text });
+        else { navigator.clipboard.writeText(text); alert('Copied share text'); }
+      };
+      document.getElementById('dlBtn').onclick = async () => {
+        const msg = document.getElementById('dlMsg');
+        msg.textContent = 'Requesting…';
+        try {
+          const r = await fetch('/api/apps/' + encodeURIComponent(id) + '/download', {
+            method: 'POST',
+            headers: { 'Accept': 'application/json' },
+          });
+          const data = await r.json();
+          const url = data.downloadUrl || data.url || app.downloadUrl;
+          if (!url) throw new Error('No download URL');
+          msg.innerHTML = '<a href="' + DivStore.escapeAttr(url) + '" target="_blank" rel="noopener">Open APK download</a>';
+        } catch (e) {
+          msg.className = 'msg err';
+          msg.textContent = e.message || 'Failed';
+        }
+      };
+      document.getElementById('reportBtn').onclick = async () => {
+        const reason = document.getElementById('reason').value.trim();
+        const msg = document.getElementById('reportMsg');
+        if (!reason) { msg.className = 'msg err'; msg.textContent = 'Please enter a reason'; return; }
+        try {
+          const res = await fetch('/api/report', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
+            body: JSON.stringify({ appId: id, appName: app.name, reason }),
+          });
+          const data = await res.json();
+          if (!res.ok) throw new Error(data.error || 'Failed');
+          msg.className = 'msg ok';
+          msg.textContent = data.message || 'Thanks — report received.';
+        } catch (e) {
+          msg.className = 'msg err';
+          msg.textContent = e.message;
+        }
+      };
+    } catch (e) {
+      root.innerHTML = '<div class="state">' + DivStore.escapeHtml(e.message) + '<br/><a href="/apps.html">Back</a></div>';
+    }
+  })();
+}
+</script>
+</body>
+</html>
